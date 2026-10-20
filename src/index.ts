@@ -11,7 +11,7 @@ const app = Fastify({
   }
 });
 
-app.get('/v1/health', async () => {
+app.get('/v1/health', () => {
   return { status: 'ok', timestamp: new Date().toISOString() };
 });
 
@@ -25,4 +25,4 @@ async function start() {
   }
 }
 
-start();
+void start();
