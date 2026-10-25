@@ -17,7 +17,7 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 ### Development Setup
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/transaction-analytics-api.git`
+2. Clone your fork: `git clone https://github.com/<your-username>/transaction-analytics-api.git`
 3. Add upstream remote: `git remote add upstream https://github.com/StellarSI/transaction-analytics-api.git`
 4. Install dependencies: `npm ci`
 5. Copy environment file: `cp .env.example .env`
