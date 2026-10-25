@@ -25,7 +25,7 @@ app.get('/v1/health', async () => {
 async function start(): Promise<void> {
   try {
     const { applied } = await runMigrations();
-    app.log.info('Database migrations applied', { applied });
+    app.log.info({ applied }, 'Database migrations applied');
     await app.listen({ port: config.PORT, host: '0.0.0.0' });
     app.log.info(`Server listening on port ${config.PORT}`);
   } catch (err) {
@@ -35,7 +35,7 @@ async function start(): Promise<void> {
   }
 }
 
-start();
+void start();
 
 async function shutdown(): Promise<void> {
   app.log.info('Shutting down');

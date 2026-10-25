@@ -6,7 +6,7 @@ import { pool } from './pool';
  * Directory containing migration SQL files. Resolved relative to this file
  * so it works both under tsx (`src/db`) and after a `tsc` build (`dist/db`).
  */
-const MIGRATIONS_DIR = path.join(import.meta.dirname, '../../migrations');
+const MIGRATIONS_DIR = path.join(__dirname, '../../migrations');
 
 export interface MigrationEntry {
   version: string;
@@ -31,7 +31,7 @@ function splitMigrationSections(sql: string): Map<string, string> {
   const sections = new Map<string, string>();
   let current: string | null = null;
   const parts: string[] = [];
-  const markerRe = /^--\s*(up|down)\s*$/m;
+  const markerRe = /^--\s*(up|down)\s*$/;
   for (const line of sql.split(/\r?\n/)) {
     const marker = line.match(markerRe);
     if (marker) {
@@ -65,25 +65,35 @@ export async function runMigrations(
 
   const files = (await fs.readdir(MIGRATIONS_DIR)).filter((file) => file.endsWith('.sql')).sort();
 
-  const rows = await pool`
+  const rows = await pool<{ version: string }[]>`
     SELECT version FROM schema_migrations ORDER BY version
   `;
-  const applied = new Set(rows.map((row) => row.version as string));
+  const applied = new Set(rows.map((row) => row.version));
 
   const appliedNow: string[] = [];
   const skipped: string[] = [];
 
-  for (const file of files) {
+  // Rollbacks walk the history backwards and stop after the newest migration.
+  const orderedFiles = direction === 'down' ? [...files].reverse() : files;
+
+  for (const file of orderedFiles) {
+    const isApplied = applied.has(file);
+
+    if (direction === 'up' && isApplied) {
+      skipped.push(file);
+      continue;
+    }
+    if (direction === 'down' && !isApplied) {
+      skipped.push(file);
+      continue;
+    }
+
     const sections = splitMigrationSections(
       await fs.readFile(path.join(MIGRATIONS_DIR, file), 'utf8')
     );
     const sql = sections.get(direction);
 
     if (!sql) {
-      skipped.push(file);
-      continue;
-    }
-    if (direction === 'up' && applied.has(file)) {
       skipped.push(file);
       continue;
     }
@@ -104,6 +114,10 @@ export async function runMigrations(
     });
 
     appliedNow.push(file);
+
+    if (direction === 'down') {
+      break;
+    }
   }
 
   return { applied: appliedNow, skipped };
@@ -118,12 +132,10 @@ export async function migrationStatus(): Promise<MigrationEntry[]> {
 
   const files = (await fs.readdir(MIGRATIONS_DIR)).filter((file) => file.endsWith('.sql')).sort();
 
-  const rows = await pool`
+  const rows = await pool<{ version: string; applied_at: Date }[]>`
     SELECT version, applied_at FROM schema_migrations ORDER BY version
   `;
-  const appliedAtByVersion = new Map(
-    rows.map((row) => [row.version as string, row.applied_at as Date])
-  );
+  const appliedAtByVersion = new Map(rows.map((row) => [row.version, row.applied_at] as const));
 
   return files.map((version) => ({
     version,

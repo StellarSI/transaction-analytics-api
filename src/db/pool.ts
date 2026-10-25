@@ -1,4 +1,4 @@
-import { postgres } from 'postgres';
+import postgres from 'postgres';
 import { config } from '../config';
 
 /**
