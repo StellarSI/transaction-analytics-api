@@ -116,9 +116,15 @@ curl -H "Authorization: Bearer $API_KEY" \
 - [ ] SEP-aware anchor labeling
 - [ ] Public hosted instance
 
+## Security
+
+Please report vulnerabilities privately — see [SECURITY.md](SECURITY.md). Do not
+open a public issue for security reports.
+
 ## Contributing
 
-Issues and PRs are welcome. Please open an issue first for larger changes. See `CONTRIBUTING.md`.
+Issues and PRs are welcome. Please open an issue first for larger changes. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Related projects
 
