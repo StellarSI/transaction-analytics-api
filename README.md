@@ -69,6 +69,26 @@ npm run dev
 
 Start on **testnet**. Fund test accounts with [Friendbot](https://developers.stellar.org/docs/learn/fundamentals/networks#friendbot).
 
+## Database schema
+
+Data is stored in TimescaleDB hypertables managed by version-controlled SQL
+migrations in `migrations/`. Run `npm run dev` to apply pending migrations
+automatically on startup.
+
+| Table | Type | Time column | Chunk interval | Description |
+| --- | --- | --- | --- | --- |
+| `ledger_operations` | Hypertable | `ledger_closed_at` | 1 day | Raw ledger operations ingested from Horizon / RPC |
+| `asset_flow_aggregates` | Hypertable | `bucket_start` | 1 hour | Per-asset volume, payments, net flow |
+| `account_flow_aggregates` | Hypertable | `bucket_start` | 1 hour | Per-account inflow, outflow, counterparties |
+| `corridor_aggregates` | Hypertable | `bucket_start` | 1 hour | Per-corridor volume and payments between anchors |
+
+All hypertables use compression with a 30-day policy on older chunks, and
+aggregate tables enforce uniqueness on `(bucket_start, interval, ...)` to
+prevent duplicate buckets.
+
+Schema TypeScript definitions live in `src/db/schema/` (`ledger.ts`,
+`aggregates.ts`) and are shared between ingestion and query code.
+
 ## API overview
 
 Base path: `/v1`. Endpoints below are the planned surface.
