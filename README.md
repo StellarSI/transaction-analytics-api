@@ -126,6 +126,25 @@ curl -H "Authorization: Bearer $API_KEY" \
 - Compliance teams spotting unusual movement patterns
 - Researchers and analysts studying network-level payment activity
 
+## Ingestion
+
+The Horizon ingestors stream operations over SSE and push structured payloads
+onto a Redis queue:
+
+- `PaymentIngestor` (`src/ingestor/horizon/payments.ts`) keeps `type_i === 1`
+  operations and extracts ledger, accounts, asset, amount and transaction hash.
+- `PathPaymentIngestor` (`src/ingestor/horizon/path-payments.ts`) handles both
+  `path_payment_strict_send` (`type_i === 2`) and `path_payment_strict_receive`
+  (`type_i === 13`), parsing the full path and attaching corridor metadata with
+  best-effort anchor identification from a local registry.
+
+Both share a streaming loop (`src/ingestor/horizon/client.ts`) that persists the
+last seen paging token and reconnects with exponential backoff, so no operation
+is dropped across a restart. The queue is currently a Redis list producer
+satisfying the `OperationQueue` port; it will be swapped for the BullMQ-based
+queue once issue #15 lands, without changes to the streaming code. Redis
+connection and health checks live in `src/redis/`.
+
 ## Roadmap
 
 - [ ] Ingestor for payments and path payments
