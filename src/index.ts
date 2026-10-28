@@ -2,6 +2,8 @@ import Fastify from 'fastify';
 import { config } from './config';
 import { closePool, dbHealthCheck } from './db/pool';
 import { runMigrations } from './db/migrate';
+import { closeRedis } from './redis/client';
+import { redisHealthCheck } from './redis/health';
 
 const app = Fastify({
   logger: {
@@ -15,10 +17,11 @@ const app = Fastify({
 
 app.get('/v1/health', async () => {
   const database = await dbHealthCheck();
+  const redis = await redisHealthCheck();
   return {
-    status: database.ok ? 'ok' : 'degraded',
+    status: database.ok && redis.ok ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),
-    services: { database },
+    services: { database, redis },
   };
 });
 
@@ -41,6 +44,7 @@ async function shutdown(): Promise<void> {
   app.log.info('Shutting down');
   await app.close();
   await closePool();
+  await closeRedis();
   process.exit(0);
 }
 

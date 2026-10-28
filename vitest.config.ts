@@ -23,6 +23,17 @@ export default defineConfig({
         test: {
           include: ['src/**/*.test.ts'],
           environment: 'node',
+          // Unit tests must not require real infrastructure. Several modules
+          // import the validated `config`, which reads these vars at load and
+          // exits if they are missing, so supply inert defaults here. This is
+          // scoped to the unit project only; integration/e2e keep the real
+          // environment.
+          env: {
+            NODE_ENV: 'test',
+            DATABASE_URL: 'postgres://user:password@localhost:5432/test',
+            API_KEY_SALT: 'unit-test-salt-min-16-chars',
+            REDIS_URL: 'redis://localhost:6379',
+          },
         },
       },
       {
