@@ -24,5 +24,20 @@
     "@typescript-eslint/await-thenable": "error",
     "@typescript-eslint/no-misused-promises": "error"
   },
+  "overrides": [
+    {
+      // Test suites are inherently mock-heavy: vitest's vi.fn()/vi.mock helpers
+      // surface as `any`-typed values, and forcing generics through every mock
+      // call site adds noise without catching more bugs than the runtime suite.
+      "files": ["src/**/*.test.ts", "tests/**/*.test.ts"],
+      "rules": {
+        "@typescript-eslint/no-unsafe-argument": "off",
+        "@typescript-eslint/no-unsafe-assignment": "off",
+        "@typescript-eslint/no-unsafe-call": "off",
+        "@typescript-eslint/no-unsafe-member-access": "off",
+        "@typescript-eslint/no-unsafe-return": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["dist/", "node_modules/", "*.config.js", "*.config.ts"]
 }

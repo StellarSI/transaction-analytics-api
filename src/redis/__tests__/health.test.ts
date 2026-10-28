@@ -7,7 +7,7 @@ function fakeClient(ping: () => Promise<string>) {
 
 describe('redisHealthCheck', () => {
   it('returns OK with latency when PING succeeds', async () => {
-    const health = await redisHealthCheck(fakeClient(async () => 'PONG'));
+    const health = await redisHealthCheck(fakeClient(() => Promise.resolve('PONG')));
     expect(health.ok).toBe(true);
     expect(health.detail).toBe('redis reachable');
     expect(health.latencyMs).toBeGreaterThanOrEqual(0);
@@ -15,9 +15,7 @@ describe('redisHealthCheck', () => {
 
   it('returns ERROR with the message when PING fails', async () => {
     const health = await redisHealthCheck(
-      fakeClient(async () => {
-        throw new Error('ECONNREFUSED');
-      }),
+      fakeClient(() => Promise.reject(new Error('ECONNREFUSED'))),
     );
     expect(health.ok).toBe(false);
     expect(health.detail).toBe('ECONNREFUSED');
@@ -25,10 +23,7 @@ describe('redisHealthCheck', () => {
 
   it('stringifies non-Error failures', async () => {
     const health = await redisHealthCheck(
-      fakeClient(async () => {
-        // eslint-disable-next-line no-throw-literal
-        throw 'raw failure';
-      }),
+      fakeClient(() => Promise.reject('raw failure')),
     );
     expect(health.ok).toBe(false);
     expect(health.detail).toBe('raw failure');

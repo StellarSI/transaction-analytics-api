@@ -186,12 +186,13 @@ export function createMemoryCursorStore(
   initial: Record<string, string> = {},
 ): CursorStore {
   const store = new Map(Object.entries(initial));
+  // Deliberately non-async methods that resolve promises inline — a memory
+  // lookup has nothing to await, but callers expect the async interface.
   return {
-    async get(key) {
-      return store.get(key) ?? null;
-    },
-    async set(key, value) {
+    get: (key) => Promise.resolve(store.get(key) ?? null),
+    set: (key, value) => {
       store.set(key, value);
+      return Promise.resolve();
     },
   };
 }

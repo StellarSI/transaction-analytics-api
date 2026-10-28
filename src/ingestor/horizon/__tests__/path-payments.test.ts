@@ -200,8 +200,11 @@ describe('PathPaymentIngestor', () => {
     const { opener, opens } = fakeOpener();
     const store = new Map<string, string>();
     const cursorStore = {
-      get: async (k: string) => store.get(k) ?? null,
-      set: async (k: string, v: string) => void store.set(k, v),
+      get: (key: string) => Promise.resolve(store.get(key) ?? null),
+      set: (key: string, value: string) => {
+        store.set(key, value);
+        return Promise.resolve();
+      },
     };
     const ingestor = new PathPaymentIngestor({ opener, queue: fakeQueue(), cursorStore });
     await ingestor.start();
