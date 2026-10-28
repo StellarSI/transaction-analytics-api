@@ -32,10 +32,12 @@ export interface OperationStreamOpener {
 export function createHorizonStreamOpener(horizonUrl: string): OperationStreamOpener {
   const server = new Horizon.Server(horizonUrl);
   return ({ cursor, handlers }) => {
+    // The cursor lives on the builder, not in the stream options, so paging
+    // tokens resume where the last stream left off (`now` starts at the head).
     const close = server
       .operations()
+      .cursor(cursor)
       .stream({
-        cursor,
         onmessage: (record: unknown) =>
           handlers.onOperation(record as HorizonOperationRecord),
         onerror: (error: unknown) =>

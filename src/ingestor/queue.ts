@@ -48,6 +48,6 @@ export function createRedisListQueue(client: {
  * list-backed queue. Import lazily so unit tests never construct a client.
  */
 export async function defaultQueue(): Promise<OperationQueue> {
-  const { getRedis } = await import('../redis/client');
+  const { getRedis } = await import('../redis/client.js');
   return createRedisListQueue(getRedis());
 }
