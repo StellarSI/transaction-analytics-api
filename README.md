@@ -140,10 +140,20 @@ onto a Redis queue:
 
 Both share a streaming loop (`src/ingestor/horizon/client.ts`) that persists the
 last seen paging token and reconnects with exponential backoff, so no operation
-is dropped across a restart. The queue is currently a Redis list producer
-satisfying the `OperationQueue` port; it will be swapped for the BullMQ-based
-queue once issue #15 lands, without changes to the streaming code. Redis
-connection and health checks live in `src/redis/`.
+is dropped across a restart. Claimable balances (SEP-11) and offer / DEX
+operations are ingested by dedicated clients (`src/ingestor/horizon/claimable-balances.ts`,
+`src/ingestor/horizon/offers.ts`). Offer payloads carry the Horizon price as an
+integer ratio (`price_n`/`price_d`) plus the `offer_id`, and a zero amount marks
+a deletion, so an offer's life cycle can be followed from creation to removal.
+
+The queue is BullMQ over Redis Streams (`src/queue/`): parsed operations land on
+the `ledger-operations` queue, aggregation passes on `aggregation-jobs`, both
+with Zod-validated payloads, 3-attempt exponential-backoff retries, workers
+that run concurrently, Prometheus metrics (`eta_queue_*` for queue depth,
+processing time and failure rate) and a drain-on-shutdown worker close.
+Payloads not yet consumed by an aggregator are validated and acknowledged; the
+dead letter queue is tracked in issue #98. Redis connection and health checks
+live in `src/redis/`.
 
 ## Roadmap
 
