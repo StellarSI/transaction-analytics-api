@@ -1,9 +1,17 @@
 import type {
+  ClaimableBalancePayload,
+  LiquidityPoolPayload,
+  OfferPayload,
   OperationQueue,
   PaymentPayload,
   PathPaymentPayload,
 } from './types';
-import { PATH_PAYMENT_QUEUE, PAYMENT_QUEUE } from './types';
+import {
+  CLAIMABLE_BALANCE_QUEUE,
+  OFFER_QUEUE,
+  PATH_PAYMENT_QUEUE,
+  PAYMENT_QUEUE,
+} from './types';
 import { logger } from '../logger';
 
 /**
@@ -39,6 +47,15 @@ export function createRedisListQueue(client: {
     },
     pushPathPayment(payload: PathPaymentPayload) {
       return push(PATH_PAYMENT_QUEUE, payload);
+    },
+    pushOffer(payload: OfferPayload) {
+      return push(OFFER_QUEUE, payload);
+    },
+    pushLiquidityPool(payload: LiquidityPoolPayload) {
+      return push(OFFER_QUEUE, payload);
+    },
+    pushClaimableBalance(payload: ClaimableBalancePayload) {
+      return push(CLAIMABLE_BALANCE_QUEUE, payload);
     },
   };
 }
