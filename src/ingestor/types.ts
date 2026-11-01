@@ -470,7 +470,15 @@ export function parsePriceRatio(
 ): { n: number; d: number } | null {
   const n = normalizeTypeI(record.price_n);
   const d = normalizeTypeI(record.price_d);
-  if (n === undefined || d === undefined || d === 0) return null;
+  if (
+    n === undefined ||
+    d === undefined ||
+    d === 0 ||
+    !Number.isInteger(n) ||
+    !Number.isInteger(d)
+  ) {
+    return null;
+  }
   return { n, d };
 }
 
