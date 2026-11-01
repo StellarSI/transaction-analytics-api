@@ -63,6 +63,30 @@ export interface HorizonOperationRecord {
   destination_account?: string;
   destination_min_amount?: string;
   path?: HorizonAssetFields[];
+  // offer / DEX
+  selling_asset_type?: string;
+  selling_asset_code?: string;
+  selling_asset_issuer?: string;
+  buying_asset_type?: string;
+  buying_asset_code?: string;
+  buying_asset_issuer?: string;
+  price?: string;
+  price_n?: number | string;
+  price_d?: number | string;
+  offer_id?: string | number;
+  liquidity_pool_id?: string;
+  /** Upper-bounded asset amounts for `liquidity_pool_deposit`. */
+  reserves_max?: HorizonAssetAmount[];
+  /** Lower-bounded asset amounts for `liquidity_pool_withdraw`. */
+  reserves_min?: HorizonAssetAmount[];
+  // claimable balances
+  balance_id?: string;
+  /** Claimant objects of a `create_claimable_balance` operation. */
+  claimants?: unknown[];
+  /** Claimant account of a `claim_claimable_balance` operation. */
+  claimant?: string;
+  /** Sponsor account that covered the create operation's reserve. */
+  sponsor?: string;
 }
 
 /**
@@ -81,9 +105,31 @@ export const OPERATION_NAME_PAYMENT = 'payment';
 export const OPERATION_NAME_PATH_PAYMENT_STRICT_SEND = 'path_payment_strict_send';
 export const OPERATION_NAME_PATH_PAYMENT_STRICT_RECEIVE = 'path_payment_strict_receive';
 
+// Offer / DEX operations (issue #14). Note the Horizon enum order here is
+// contiguous for the offers (3-5) but jumps for the liquidity pool ops.
+export const OPERATION_TYPE_MANAGE_BUY_OFFER = 3;
+export const OPERATION_TYPE_MANAGE_SELL_OFFER = 4;
+export const OPERATION_TYPE_CREATE_PASSIVE_SELL_OFFER = 5;
+export const OPERATION_TYPE_LIQUIDITY_POOL_DEPOSIT = 22;
+export const OPERATION_TYPE_LIQUIDITY_POOL_WITHDRAW = 23;
+
+export const OPERATION_NAME_MANAGE_BUY_OFFER = 'manage_buy_offer';
+export const OPERATION_NAME_MANAGE_SELL_OFFER = 'manage_sell_offer';
+export const OPERATION_NAME_CREATE_PASSIVE_SELL_OFFER = 'create_passive_sell_offer';
+export const OPERATION_NAME_LIQUIDITY_POOL_DEPOSIT = 'liquidity_pool_deposit';
+export const OPERATION_NAME_LIQUIDITY_POOL_WITHDRAW = 'liquidity_pool_withdraw';
+
+// Claimable balance operations (issue #13; SEP-11 life cycle).
+export const OPERATION_TYPE_CREATE_CLAIMABLE_BALANCE = 14;
+export const OPERATION_TYPE_CLAIM_CLAIMABLE_BALANCE = 15;
+export const OPERATION_NAME_CREATE_CLAIMABLE_BALANCE = 'create_claimable_balance';
+export const OPERATION_NAME_CLAIM_CLAIMABLE_BALANCE = 'claim_claimable_balance';
+
 /** Queue names shared by the ingestors and the future queue consumer. */
 export const PAYMENT_QUEUE = 'ingest:payments';
 export const PATH_PAYMENT_QUEUE = 'ingest:path-payments';
+export const OFFER_QUEUE = 'ingest:offers';
+export const CLAIMABLE_BALANCE_QUEUE = 'ingest:claimable-balances';
 
 /**
  * Destination for parsed operations. The Redis list implementation here is a
@@ -93,6 +139,9 @@ export const PATH_PAYMENT_QUEUE = 'ingest:path-payments';
 export interface OperationQueue {
   pushPayment(payload: PaymentPayload): Promise<void>;
   pushPathPayment(payload: PathPaymentPayload): Promise<void>;
+  pushOffer(payload: OfferPayload): Promise<void>;
+  pushLiquidityPool(payload: LiquidityPoolPayload): Promise<void>;
+  pushClaimableBalance(payload: ClaimableBalancePayload): Promise<void>;
 }
 
 /** Fields common to both payload kinds. */
@@ -171,12 +220,86 @@ export interface PathPaymentPayload extends OperationBase {
   corridor: CorridorMetadata;
 }
 
+/** Horizon asset serialized together with its bound amount (reserves lists). */
+export interface HorizonAssetAmount extends HorizonAssetFields {
+  amount?: string;
+}
+
+/** Which flavour of offer an operation represents. */
+export type OfferOperationVariant = 'manage-buy' | 'manage-sell' | 'passive-sell';
+
+/** Payload pushed for offer operations (`type_i` 3, 4, 5) — issue #14. */
+export interface OfferPayload extends OperationBase {
+  kind: 'offer';
+  variant: OfferOperationVariant;
+  sellingAsset: NormalizedAsset;
+  buyingAsset: NormalizedAsset;
+  /** Offer amount after this operation; `0.0000000` marks a deletion. */
+  amount: string;
+  /** Price as Horizon's integer ratio (n / d), required for every offer op. */
+  priceRatio: { n: number; d: number };
+  /** Decimal price as reported by Horizon, when present. */
+  priceDecimal?: string;
+  /** Horizon offer id (`'0'` when the operation creates a new offer). */
+  offerId: string;
+  /** True when this operation zeroes out the offer (amount is 0). */
+  isDeletion: boolean;
+}
+
+/** Which direction of liquidity pool movement an operation represents. */
+export type LiquidityPoolVariant = 'deposit' | 'withdraw';
+
+/**
+ * Payload pushed for liquidity pool operations (`type_i` 22, 23). Deposits
+ * carry upper bounds (`reserves_max`), withdrawals lower bounds
+ * (`reserves_min`); both live in `reserveBounds` parallel to `reserves`.
+ */
+export interface LiquidityPoolPayload extends OperationBase {
+  kind: 'liquidity_pool';
+  variant: LiquidityPoolVariant;
+  /** Hex pool identifier as allocated by Horizon. */
+  poolId: string;
+  /** Reserve assets, in canonical (assetA, assetB) order. */
+  reserves: NormalizedAsset[];
+  /** Bound amounts parallel to `reserves` (max for deposits, min for withdrawals). */
+  reserveBounds: string[];
+}
+
+/** One claimant entry of a claimable balance (SEP-11). */
+export interface ClaimantInfo {
+  /** Account allowed to claim the balance. */
+  destination: string;
+  /** Claim predicate as sent by Horizon, when present. */
+  predicate?: unknown;
+}
+
+/** Which step of the claimable balance life cycle an operation represents. */
+export type ClaimableBalanceVariant = 'create' | 'claim';
+
+/** Payload pushed for claimable balance operations (`type_i` 14, 15). */
+export interface ClaimableBalancePayload extends OperationBase {
+  kind: 'claimable_balance';
+  variant: ClaimableBalanceVariant;
+  asset: NormalizedAsset;
+  amount: string;
+  /**
+   * Balance id for correlation across the life cycle. Horizon reports it on
+   * claim operations; on create operations it is derived downstream.
+   */
+  balanceId?: string;
+  /** Destinations allowed to claim (create operations). */
+  claimants: ClaimantInfo[];
+  /** Account that executed the claim (claim operations). */
+  claimant?: string;
+  /** Sponsor covering the held balance (create operations), when known. */
+  sponsor?: string;
+}
+
 /**
  * Resumable cursor storage for the SSE streams. The ingestor only persists
  * the last *seen* paging token; any store satisfying this port works — an
  * in-memory one for tests, Redis in production.
- */
-export interface CursorStore {
+ */export interface CursorStore {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
 }
@@ -270,4 +393,119 @@ export function normalizeAsset(
 /** Stable string key for an asset, e.g. `XLM` or `USDC:GAYZ...`. */
 export function assetKey(asset: NormalizedAsset): string {
   return asset.issuer ? `${asset.code}:${asset.issuer}` : asset.code;
+}
+
+/**
+ * Which offer-side operation a record represents (`type_i` 3, 4, 5), or null
+ * if it isn't one. Liquidity pool deposits/withdrawals are DEX too but get
+ * their own classifier ({@link liquidityPoolVariant}) since their payloads
+ * name a pool and reserve bounds instead of an offer id.
+ */
+export function offerOperationVariant(
+  record: HorizonOperationRecord,
+): OfferOperationVariant | null {
+  const typeI = normalizeTypeI(record.type_i);
+  if (
+    record.type === OPERATION_NAME_MANAGE_BUY_OFFER ||
+    typeI === OPERATION_TYPE_MANAGE_BUY_OFFER
+  ) {
+    return 'manage-buy';
+  }
+  if (
+    record.type === OPERATION_NAME_MANAGE_SELL_OFFER ||
+    typeI === OPERATION_TYPE_MANAGE_SELL_OFFER
+  ) {
+    return 'manage-sell';
+  }
+  if (
+    record.type === OPERATION_NAME_CREATE_PASSIVE_SELL_OFFER ||
+    typeI === OPERATION_TYPE_CREATE_PASSIVE_SELL_OFFER
+  ) {
+    return 'passive-sell';
+  }
+  return null;
+}
+
+/** True when a record is an offer-side operation (manage/passive offers). */
+export function isOfferOperation(record: HorizonOperationRecord): boolean {
+  return offerOperationVariant(record) !== null;
+}
+
+/**
+ * Which liquidity pool movement a record represents (`type_i` 22, 23), or
+ * null if it isn't one.
+ */
+export function liquidityPoolVariant(
+  record: HorizonOperationRecord,
+): LiquidityPoolVariant | null {
+  const typeI = normalizeTypeI(record.type_i);
+  if (
+    record.type === OPERATION_NAME_LIQUIDITY_POOL_DEPOSIT ||
+    typeI === OPERATION_TYPE_LIQUIDITY_POOL_DEPOSIT
+  ) {
+    return 'deposit';
+  }
+  if (
+    record.type === OPERATION_NAME_LIQUIDITY_POOL_WITHDRAW ||
+    typeI === OPERATION_TYPE_LIQUIDITY_POOL_WITHDRAW
+  ) {
+    return 'withdraw';
+  }
+  return null;
+}
+
+/** True when a record is a liquidity pool deposit or withdrawal. */
+export function isLiquidityPoolOperation(record: HorizonOperationRecord): boolean {
+  return liquidityPoolVariant(record) !== null;
+}
+
+/**
+ * Parses Horizon's integer price ratio (`price_n` / `price_d`). Both fields
+ * arrive as numbers over REST but may be stringified over SSE, so both
+ * representations are accepted. Returns null when the ratio is missing or
+ * unusable (zero denominator).
+ */
+export function parsePriceRatio(
+  record: HorizonOperationRecord,
+): { n: number; d: number } | null {
+  const n = normalizeTypeI(record.price_n);
+  const d = normalizeTypeI(record.price_d);
+  if (
+    n === undefined ||
+    d === undefined ||
+    d === 0 ||
+    !Number.isInteger(n) ||
+    !Number.isInteger(d)
+  ) {
+    return null;
+  }
+  return { n, d };
+}
+
+/**
+ * Which step of the claimable balance life cycle a record represents
+ * (`type_i` 14 create, 15 claim), or null if it isn't one.
+ */
+export function claimableBalanceVariant(
+  record: HorizonOperationRecord,
+): ClaimableBalanceVariant | null {
+  const typeI = normalizeTypeI(record.type_i);
+  if (
+    record.type === OPERATION_NAME_CREATE_CLAIMABLE_BALANCE ||
+    typeI === OPERATION_TYPE_CREATE_CLAIMABLE_BALANCE
+  ) {
+    return 'create';
+  }
+  if (
+    record.type === OPERATION_NAME_CLAIM_CLAIMABLE_BALANCE ||
+    typeI === OPERATION_TYPE_CLAIM_CLAIMABLE_BALANCE
+  ) {
+    return 'claim';
+  }
+  return null;
+}
+
+/** True when a record is a claimable balance create or claim operation. */
+export function isClaimableBalanceOperation(record: HorizonOperationRecord): boolean {
+  return claimableBalanceVariant(record) !== null;
 }
