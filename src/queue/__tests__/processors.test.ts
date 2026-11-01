@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Registry } from 'prom-client';
+import type { QueueMetrics } from '../metrics';
 
 /**
  * Unit tests for the queue workers (issue #15). Workers are mocked so no
@@ -54,7 +55,16 @@ const aggregationPayload = {
 };
 
 describe('createLedgerOperationsProcessor', () => {
-  let metrics: ReturnType<typeof createQueueMetrics>;
+  let metrics: QueueMetrics;
+
+  /** Reads one labeled counter value (0 when the label was never touched). */
+  async function counterTotal(
+    counter: { get(): Promise<{ values: Array<{ value: number; labels: { queue?: string | number } }> }> },
+    queue: string,
+  ): Promise<number> {
+    const { values } = await counter.get();
+    return values.find((v) => String(v.labels.queue) === queue)?.value ?? 0;
+  }
 
   beforeEach(() => {
     metrics = createQueueMetrics(new Registry());
@@ -71,7 +81,7 @@ describe('createLedgerOperationsProcessor', () => {
       expect.objectContaining({ id: 'op-1' }),
     );
     expect(
-      metrics.processedTotal.get({ queue: LEDGER_OPERATIONS_QUEUE }).values[0].value,
+      await counterTotal(metrics.processedTotal, LEDGER_OPERATIONS_QUEUE),
     ).toBe(1);
   });
 
