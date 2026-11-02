@@ -1,4 +1,4 @@
-import { type ConnectionOptions, type Job, Worker } from 'bullmq';
+import { Worker, type ConnectionOptions, type Job, type WorkerOptions } from 'bullmq';
 import {
   AGGREGATION_JOBS_QUEUE,
   DEFAULT_WORKER_CONCURRENCY,
@@ -7,6 +7,7 @@ import {
   LedgerOperationJobSchema,
   QUEUE_METRICS_SWEEP_MS,
   QueueValidationError,
+  createQueueConnection,
   type AggregationJob,
   type AggregationJobKind,
   type CreateQueueRegistryOptions,
@@ -48,14 +49,14 @@ export type LedgerOperationHandlers = {
   [K in LedgerOperationJob['kind']]?: LedgerOperationHandler<K>;
 };
 
-export type AggregationJobHandler<K extends AggregationJobKind = AggregationJobKind> = (
+export type AggregationJobHandler = (
   payload: AggregationJob,
   job: Job<AggregationJob>,
 ) => Promise<void> | void;
 
 /** Handlers keyed by aggregation kind; any subset may be provided. */
 export type AggregationJobHandlers = {
-  [K in AggregationJobKind]?: AggregationJobHandler<K>;
+  [K in AggregationJobKind]?: AggregationJobHandler;
 };
 
 /**
@@ -201,8 +202,10 @@ export function startQueueWorkers(
   const sweepIntervalMs =
     options.sweepIntervalMs ?? QUEUE_METRICS_SWEEP_MS;
 
-  const workerOptions = {
-    connection: options.connection as ConnectionOptions | undefined,
+  const workerOptions: WorkerOptions = {
+    // Workers need their own blocking connection; fall back to the shared
+    // REDIS_URL-derived client when the caller did not inject one.
+    connection: (options.connection ?? createQueueConnection()) as ConnectionOptions,
     concurrency,
   };
 
