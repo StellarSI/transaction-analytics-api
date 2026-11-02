@@ -52,16 +52,16 @@ describe('queue metrics', () => {
   });
 
   it('sweep sets queue depth from the reader', async () => {
-    await sweepQueueMetrics(metrics, LEDGER_OPERATIONS_QUEUE, async () => 42);
+    await sweepQueueMetrics(metrics, LEDGER_OPERATIONS_QUEUE, () => Promise.resolve(42));
     expect(
       await sampleOf('eta_queue_depth', { queue: LEDGER_OPERATIONS_QUEUE }),
     ).toBe(42);
   });
 
   it('sweep reports zero depth when reading fails', async () => {
-    await sweepQueueMetrics(metrics, AGGREGATION_JOBS_QUEUE, async () => {
-      throw new Error('redis down');
-    });
+    await sweepQueueMetrics(metrics, AGGREGATION_JOBS_QUEUE, () =>
+      Promise.reject(new Error('redis down')),
+    );
     expect(
       await sampleOf('eta_queue_depth', { queue: AGGREGATION_JOBS_QUEUE }),
     ).toBe(0);
@@ -71,14 +71,14 @@ describe('queue metrics', () => {
     metrics.processedTotal.inc({ queue: LEDGER_OPERATIONS_QUEUE }, 8);
     metrics.failuresTotal.inc({ queue: LEDGER_OPERATIONS_QUEUE }, 2);
 
-    await sweepQueueMetrics(metrics, LEDGER_OPERATIONS_QUEUE, async () => 0);
+    await sweepQueueMetrics(metrics, LEDGER_OPERATIONS_QUEUE, () => Promise.resolve(0));
     expect(
       await sampleOf('eta_queue_failure_rate', { queue: LEDGER_OPERATIONS_QUEUE }),
     ).toBeCloseTo(0.2);
   });
 
   it('failure rate is zero when nothing has been processed yet', async () => {
-    await sweepQueueMetrics(metrics, LEDGER_OPERATIONS_QUEUE, async () => 0);
+    await sweepQueueMetrics(metrics, LEDGER_OPERATIONS_QUEUE, () => Promise.resolve(0));
     expect(
       await sampleOf('eta_queue_failure_rate', { queue: LEDGER_OPERATIONS_QUEUE }),
     ).toBe(0);
