@@ -10,11 +10,10 @@
  * ingestor tracks the last ledger seen as a cursor and fetches events from
  * that ledger onward on each poll cycle.
  *
- * The RPC client is injected (or constructed from `rpcUrl`) so unit tests
- * can supply a mock without touching the network.
+ * The RPC client interface is structural (not tied to a specific SDK class)
+ * so unit tests can inject a mock without touching the network.
  */
 
-import { RpcClient } from '@stellar/stellar-sdk';
 import type {
   CursorStore,
   OperationQueue,
@@ -31,17 +30,18 @@ interface RpcSorobanEvent {
   eventIndex: number;
   contractId?: string;
   /** Event type string for contract events (e.g. "transfer"). */
-  type?: string;
+  eventType?: string;
   /** Base64-encoded SCVal topics. */
   topics?: string[];
   /** Base64-encoded SCVal event data, when present. */
   value?: string;
 }
 
-/** Shape of the `getEvents` response. */
-interface RpcGetEventsResponse {
-  events: RpcSorobanEvent[];
-  latestLedger: number;
+/** Minimal structural interface for the RPC client's `getEvents` method. */
+interface RpcClientLike {
+  getEvents(
+    params: unknown,
+  ): Promise<{ events: RpcSorobanEvent[]; latestLedger: number }>;
 }
 
 /** Options for {@link SorobanEventIngestor}. */
@@ -66,8 +66,8 @@ export interface SorobanEventIngestorOptions {
   limit?: number;
   /** Injected for tests so poll delays are instantaneous. */
   wait?: (ms: number) => Promise<void>;
-  /** Injected RPC client for tests; defaults to a real RpcClient. */
-  rpc?: RpcClient;
+  /** Injected RPC client for tests; defaults to a real client. */
+  rpc?: RpcClientLike;
 }
 
 type ResolvedOptions = {
@@ -81,7 +81,7 @@ type ResolvedOptions = {
   pollIntervalMs: number;
   limit: number;
   wait: (ms: number) => Promise<void>;
-  rpc: RpcClient;
+  rpc: RpcClientLike;
 };
 
 const defaultWait = (ms: number) =>
@@ -121,7 +121,7 @@ export class SorobanEventIngestor {
       pollIntervalMs: options.pollIntervalMs ?? 5_000,
       limit: options.limit ?? 100,
       wait: options.wait ?? defaultWait,
-      rpc: options.rpc ?? new RpcClient(options.rpcUrl),
+      rpc: options.rpc,
     };
     this.cursor = null;
   }
@@ -169,11 +169,9 @@ export class SorobanEventIngestor {
       if (this.options.eventTypes !== 'all') {
         params.eventTypes = [this.options.eventTypes];
       }
-      const response = await this.options.rpc.getEvents(
-        params as unknown as Parameters<RpcClient['getEvents']>[0],
-      );
 
-      const events = response.events ?? [];
+      const response = await this.options.rpc?.getEvents(params);
+      const events = response?.events ?? [];
       for (const event of events) {
         const payload = this.parseEvent(event);
         if (payload) {
@@ -181,8 +179,9 @@ export class SorobanEventIngestor {
         }
       }
 
-      if (typeof response.latestLedger === 'number') {
-        this.cursor = response.latestLedger;
+      const latestLedger = response?.latestLedger;
+      if (typeof latestLedger === 'number') {
+        this.cursor = latestLedger;
         await this.persistCursor();
       }
     } catch (error) {
@@ -205,7 +204,7 @@ export class SorobanEventIngestor {
   /** Parses an RPC Soroban event into a `SorobanEventPayload`, or null when
    * the event lacks the fields we need (contract ID or event type). */
   private parseEvent(event: RpcSorobanEvent): SorobanEventPayload | null {
-    if (!event.contractId || !event.type) return null;
+    if (!event.contractId || !event.eventType) return null;
 
     return {
       kind: 'soroban_event',
@@ -216,7 +215,7 @@ export class SorobanEventIngestor {
       txHash: event.transactionHash,
       sourceAccount: undefined,
       contractId: event.contractId,
-      eventType: event.type,
+      eventType: event.eventType,
       topics: event.topics ?? [],
       value: event.value,
     };
@@ -260,5 +259,9 @@ export class SorobanEventIngestor {
 export async function defaultSorobanEventIngestor(
   options: Omit<SorobanEventIngestorOptions, 'rpc'>,
 ): Promise<SorobanEventIngestor> {
-  return new SorobanEventIngestor({ ...options, rpc: new RpcClient(options.rpcUrl) });
+  const { RpcClient } = await import('@stellar/stellar-sdk');
+  return new SorobanEventIngestor({
+    ...options,
+    rpc: new RpcClient(options.rpcUrl) as unknown as RpcClientLike,
+  });
 }
