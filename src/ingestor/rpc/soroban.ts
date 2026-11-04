@@ -251,21 +251,3 @@ export class SorobanEventIngestor {
     }
   }
 }
-
-/**
- * Convenience factory wiring the RPC client from config into the ingestor.
- * Import lazily so unit tests never construct a real client.
- */
-export async function defaultSorobanEventIngestor(
-  options: Omit<SorobanEventIngestorOptions, 'rpc'>,
-): Promise<SorobanEventIngestor> {
-  const sdk = await import('@stellar/stellar-sdk');
-  const RpcClient = (sdk as { default?: { RpcClient: new (url: string) => unknown } })
-    .default?.RpcClient;
-  return new SorobanEventIngestor({
-    ...options,
-    rpc: RpcClient
-      ? (new RpcClient(options.rpcUrl) as unknown as RpcClientLike)
-      : undefined,
-  });
-}
