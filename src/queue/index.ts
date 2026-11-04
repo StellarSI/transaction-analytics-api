@@ -13,6 +13,7 @@ import type {
   OperationQueue,
   PaymentPayload,
   PathPaymentPayload,
+  SorobanEventPayload,
 } from '../ingestor/types';
 import { logger } from '../logger';
 
@@ -139,6 +140,14 @@ const ClaimableBalancePayloadSchema = OperationBaseSchema.extend({
   sponsor: z.string().optional(),
 });
 
+const SorobanEventPayloadSchema = OperationBaseSchema.extend({
+  kind: z.literal('soroban_event'),
+  contractId: z.string().min(1),
+  eventType: z.string().min(1),
+  topics: z.array(z.string().min(1)),
+  value: z.string().optional(),
+});
+
 /** Union of every payload the ingestors can push (Zod-validated at the boundary). */
 export const LedgerOperationJobSchema = z.discriminatedUnion('kind', [
   PaymentPayloadSchema,
@@ -146,6 +155,7 @@ export const LedgerOperationJobSchema = z.discriminatedUnion('kind', [
   OfferPayloadSchema,
   LiquidityPoolPayloadSchema,
   ClaimableBalancePayloadSchema,
+  SorobanEventPayloadSchema,
 ]);
 
 export type LedgerOperationJob = z.infer<typeof LedgerOperationJobSchema>;
@@ -335,6 +345,9 @@ export function createBullMQOperationQueue(
     pushClaimableBalance(payload: ClaimableBalancePayload) {
       return push(payload);
     },
+    pushSorobanEvent(payload: SorobanEventPayload) {
+      return push(payload);
+    },
   };
 }
 
@@ -358,4 +371,5 @@ export type {
   OfferPayload,
   PaymentPayload,
   PathPaymentPayload,
+  SorobanEventPayload,
 };

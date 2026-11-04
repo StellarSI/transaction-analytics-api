@@ -130,6 +130,7 @@ export const PAYMENT_QUEUE = 'ingest:payments';
 export const PATH_PAYMENT_QUEUE = 'ingest:path-payments';
 export const OFFER_QUEUE = 'ingest:offers';
 export const CLAIMABLE_BALANCE_QUEUE = 'ingest:claimable-balances';
+export const SOROBAN_EVENT_QUEUE = 'ingest:soroban-events';
 
 /**
  * Destination for parsed operations. The Redis list implementation here is a
@@ -142,6 +143,7 @@ export interface OperationQueue {
   pushOffer(payload: OfferPayload): Promise<void>;
   pushLiquidityPool(payload: LiquidityPoolPayload): Promise<void>;
   pushClaimableBalance(payload: ClaimableBalancePayload): Promise<void>;
+  pushSorobanEvent(payload: SorobanEventPayload): Promise<void>;
 }
 
 /** Fields common to both payload kinds. */
@@ -293,6 +295,22 @@ export interface ClaimableBalancePayload extends OperationBase {
   claimant?: string;
   /** Sponsor covering the held balance (create operations), when known. */
   sponsor?: string;
+}
+
+/** Payload pushed for Soroban contract events ingested via Stellar RPC.
+ * Events are keyed by contract ID and event type; topics and value are
+ * base64-encoded SCVals as returned by the RPC `getEvents` endpoint.
+ */
+export interface SorobanEventPayload extends OperationBase {
+  kind: 'soroban_event';
+  /** The contract that emitted the event. */
+  contractId: string;
+  /** The event type string (e.g. "transfer", "initialize"). */
+  eventType: string;
+  /** Base64-encoded SCVal topics from the event. */
+  topics: string[];
+  /** Base64-encoded SCVal event data, when present. */
+  value?: string;
 }
 
 /**

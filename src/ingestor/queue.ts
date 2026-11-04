@@ -5,12 +5,14 @@ import type {
   OperationQueue,
   PaymentPayload,
   PathPaymentPayload,
+  SorobanEventPayload,
 } from './types';
 import {
   CLAIMABLE_BALANCE_QUEUE,
   OFFER_QUEUE,
   PATH_PAYMENT_QUEUE,
   PAYMENT_QUEUE,
+  SOROBAN_EVENT_QUEUE,
 } from './types';
 import { logger } from '../logger';
 
@@ -56,6 +58,9 @@ export function createRedisListQueue(client: {
     },
     pushClaimableBalance(payload: ClaimableBalancePayload) {
       return push(CLAIMABLE_BALANCE_QUEUE, payload);
+    },
+    pushSorobanEvent(payload: SorobanEventPayload) {
+      return push(SOROBAN_EVENT_QUEUE, payload);
     },
   };
 }
