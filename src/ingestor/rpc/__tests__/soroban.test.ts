@@ -73,17 +73,9 @@ function eventRecord(overrides: Partial<{
 }
 
 /** Resolves on the next macrotask so queued microtasks can flush. */
-const flush = () => new Promise((r) => setTimeout(r, 0));
+const flush = () => Promise.resolve().then(() => {});
 
 describe('SorobanEventIngestor', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('parses a contract event into a SorobanEventPayload', () => {
     const rpc = mockRpcClient({
       events: [eventRecord()],

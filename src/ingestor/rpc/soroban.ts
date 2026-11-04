@@ -161,12 +161,17 @@ export class SorobanEventIngestor {
 
     try {
       const startLedger = this.cursor ?? this.options.initialLedger;
-      const response = await this.options.rpc.getEvents({
+      const params: Record<string, unknown> = {
         contractIds: this.options.contractIds,
-        eventTypes: this.options.eventTypes,
         startLedger,
         limit: this.options.limit,
-      } as unknown as Parameters<RpcClient['getEvents']>[0]);
+      };
+      if (this.options.eventTypes !== 'all') {
+        params.eventTypes = [this.options.eventTypes];
+      }
+      const response = await this.options.rpc.getEvents(
+        params as unknown as Parameters<RpcClient['getEvents']>[0],
+      );
 
       const events = response.events ?? [];
       for (const event of events) {
