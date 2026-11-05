@@ -11,7 +11,13 @@ const envSchema = z.object({
   
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
-  
+
+  // Hubble/BigQuery historical backfill (issue #17). Both are optional —
+  // only needed when running the backfill job; empty values fall back to
+  // Application Default Credentials / the gcloud SDK configuration.
+  BIGQUERY_PROJECT_ID: z.string().default(''),
+  BIGQUERY_KEY_FILE: z.string().default(''),
+
   API_KEY_SALT: z.string().min(16),
 });
 
