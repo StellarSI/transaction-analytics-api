@@ -155,6 +155,29 @@ Payloads not yet consumed by an aggregator are validated and acknowledged; the
 dead letter queue is tracked in issue #98. Redis connection and health checks
 live in `src/redis/`.
 
+### Historical backfill (Hubble / BigQuery)
+
+The live Horizon/RPC ingestors only cover data from the moment they start.
+For historical analytics, `src/ingestor/hubble/backfill.ts` pulls past
+operations from SDF's public BigQuery dataset (`crypto_stellar`) and
+batch-inserts them into the `ledger_operations` hypertable:
+
+- **Idempotent**: rows whose `(transaction_hash, operation_index)` key
+  already exists are skipped, so re-running a date range is safe.
+- **Resumable**: the last completed day is persisted to a `CursorStore`;
+  after a failure the job resumes from the day after the cursor.
+- **Filtered**: optional `assetCode`, `assetIssuer` and `account` filters
+  are passed as bound BigQuery parameters.
+- **Aggregation-aware**: each inserted day enqueues `asset-flow`,
+  `account-flow` and `corridor` aggregation jobs per hour bucket
+  (issues #18, #19, #21).
+
+The BigQuery client is injected as a structural port (`BigQueryClientLike`),
+so unit tests run without the `@google-cloud/bigquery` SDK. In production,
+`createBigQueryClient()` lazily imports it using the `BIGQUERY_PROJECT_ID`
+and `BIGQUERY_KEY_FILE` environment variables (see `.env.example`). The
+Postgres-backed store lives in `src/ingestor/hubble/store.ts`.
+
 ## Roadmap
 
 - [ ] Ingestor for payments and path payments
