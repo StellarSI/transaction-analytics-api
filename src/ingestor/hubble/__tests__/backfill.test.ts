@@ -22,13 +22,13 @@ function fakeBigQuery(
   const calls: Array<{ query: string; params?: Record<string, unknown> }> = [];
   return {
     calls,
-    query: vi.fn(async (params: { query: string; params?: Record<string, unknown> }) => {
+    query: vi.fn((params: { query: string; params?: Record<string, unknown> }) => {
       calls.push(params);
       const from = String(params.params?.['from'] ?? '');
       const day = from.slice(0, 10);
       const rows = days[day] ?? [];
       const result: BigQueryQueryResult = { rows: rows as Record<string, unknown>[] };
-      return [result] as [BigQueryQueryResult];
+      return Promise.resolve([result] as [BigQueryQueryResult]);
     }),
   } as unknown as BigQueryClientLike & {
     calls: Array<{ query: string; params?: Record<string, unknown> }>;
@@ -42,23 +42,29 @@ interface FakeStore {
 
 function fakeStore(existingKeys: Set<string> = new Set()): FakeStore {
   return {
-    insertOperations: vi.fn(async (rows: LedgerOperationInsert[]) => rows.length),
-    findExistingKeys: vi.fn(async () => existingKeys),
+    insertOperations: vi.fn((rows: LedgerOperationInsert[]) => Promise.resolve(rows.length)),
+    findExistingKeys: vi.fn(() => Promise.resolve(existingKeys)),
   };
 }
 
 function fakeCursorStore(initial: Record<string, string> = {}): CursorStore & {
   data: Map<string, string>;
+  setMock: ReturnType<typeof vi.fn>;
 } {
   const data = new Map(Object.entries(initial));
+  const setMock = vi.fn((key: string, value: string) => {
+    data.set(key, value);
+    return Promise.resolve();
+  });
   return {
     data,
     get: vi.fn((key: string) => Promise.resolve(data.get(key) ?? null)),
-    set: vi.fn((key: string, value: string) => {
-      data.set(key, value);
-      return Promise.resolve();
-    }),
-  } as unknown as CursorStore & { data: Map<string, string> };
+    set: setMock,
+    setMock,
+  } as unknown as CursorStore & {
+    data: Map<string, string>;
+    setMock: ReturnType<typeof vi.fn>;
+  };
 }
 
 function hubbleRow(overrides: Partial<HubbleRow> = {}): HubbleRow {
@@ -280,7 +286,7 @@ describe('HubbleBackfill.run', () => {
 
     expect(cursorStore.data.get('backfill:cursor')).toBe('2026-01-02');
     // set called twice: once per day.
-    expect(cursorStore.set).toHaveBeenCalledTimes(2);
+    expect(cursorStore.setMock).toHaveBeenCalledTimes(2);
   });
 
   it('does not advance the cursor when a day fails', async () => {
@@ -321,7 +327,7 @@ describe('HubbleBackfill.run', () => {
     const result = await backfill.run();
     expect(result.daysProcessed).toBe(0);
     expect(result.rowsFetched).toBe(0);
-    expect(bq.query).not.toHaveBeenCalled();
+    expect(bq.calls).toHaveLength(0);
   });
 
   it('skips the insert when a day has no rows', async () => {
@@ -394,7 +400,7 @@ describe('HubbleBackfill.run', () => {
       '2026-01-01': [hubbleRow({ transaction_hash: 'tx1' })],
     });
     const store = fakeStore();
-    const triggerAggregation = vi.fn(async () => {});
+    const triggerAggregation = vi.fn(() => Promise.resolve());
 
     const backfill = new HubbleBackfill({
       bigquery: bq,
@@ -419,7 +425,7 @@ describe('HubbleBackfill.run', () => {
   it('does not enqueue aggregations when nothing was inserted', async () => {
     const bq = fakeBigQuery({ '2026-01-01': [] });
     const store = fakeStore();
-    const triggerAggregation = vi.fn(async () => {});
+    const triggerAggregation = vi.fn(() => Promise.resolve());
 
     const backfill = new HubbleBackfill({
       bigquery: bq,
@@ -465,3 +471,4 @@ describe('createBigQueryClient', () => {
     expect(createBigQueryClient.constructor).toBe(Function);
   });
 });
+
