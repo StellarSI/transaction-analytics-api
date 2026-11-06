@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Stellar Developer Documentation
+    url: https://developers.stellar.org/
+    about: Official Stellar and Horizon API documentation
+  - name: Security Vulnerability Reporting
+    url: https://github.com/StellarSI/transaction-analytics-api/security/advisories/new
+    about: Please report sensitive security vulnerabilities privately via GitHub Security Advisories
