@@ -446,15 +446,17 @@ export function createInMemoryAssetFlowStore(
   }): string => `${row.bucket_start} ${row.interval} ${row.asset_code} ${row.asset_issuer ?? ''}`;
 
   return {
-    async readOperations(fromIso, toIso) {
+    readOperations(fromIso, toIso) {
       const from = Date.parse(fromIso);
       const to = Date.parse(toIso);
-      return operations.filter((op) => {
-        const t = Date.parse(op.ledger_closed_at);
-        return !Number.isNaN(t) && t >= from && t < to;
-      });
+      return Promise.resolve(
+        operations.filter((op) => {
+          const t = Date.parse(op.ledger_closed_at);
+          return !Number.isNaN(t) && t >= from && t < to;
+        }),
+      );
     },
-    async upsertAggregates(deltas) {
+    upsertAggregates(deltas) {
       const persisted: AssetFlowAggregate[] = [];
       for (const delta of deltas) {
         const candidate: AssetFlowAggregate = {
@@ -482,9 +484,9 @@ export function createInMemoryAssetFlowStore(
           persisted.push(candidate);
         }
       }
-      return persisted;
+      return Promise.resolve(persisted);
     },
-    async deleteAggregates(interval, bucketStarts) {
+    deleteAggregates(interval, bucketStarts) {
       const targets = new Set(bucketStarts);
       let removed = 0;
       for (const [key, row] of [...aggregates]) {
@@ -493,7 +495,7 @@ export function createInMemoryAssetFlowStore(
           removed += 1;
         }
       }
-      return removed;
+      return Promise.resolve(removed);
     },
     rows() {
       return [...aggregates.values()].map((row) => ({ ...row }));
