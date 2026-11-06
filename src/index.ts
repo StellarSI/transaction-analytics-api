@@ -1,11 +1,17 @@
 import Fastify from 'fastify';
 import { config } from './config';
-import { closePool, dbHealthCheck } from './db/pool';
+import { closePool, dbHealthCheck, pool } from './db/pool';
 import { runMigrations } from './db/migrate';
 import { closeRedis } from './redis/client';
 import { redisHealthCheck } from './redis/health';
 import { createQueueRegistry, type QueueRegistry } from './queue';
 import { startQueueWorkers, type QueueWorkers } from './queue/processors';
+import {
+  createAssetFlowAggregationHandler,
+  createAssetFlowHandlers,
+  createPostgresAssetFlowStore,
+  type AssetFlowSql,
+} from './aggregator/asset-flows';
 
 const app = Fastify({
   logger: {
@@ -36,11 +42,19 @@ async function start(): Promise<void> {
     app.log.info({ applied }, 'Database migrations applied');
 
     // Queue layer (issue #15): consumers for the ledger-operation and
-    // aggregation-job queues. The per-kind aggregation handlers land with
-    // the aggregation issues (#18, #19, #21); until then validated payloads
-    // are acknowledged so the queue stays responsive.
+    // aggregation-job queues. The asset flow aggregator (issue #18) consumes
+    // payments and path payments and recomputes buckets enqueued by the
+    // backfill; kinds without handlers are validated and acknowledged so the
+    // queue never wedges while the remaining aggregation passes land.
     queueRegistry = createQueueRegistry();
-    queueWorkers = startQueueWorkers({ registry: queueRegistry });
+    // The pool satisfies the tagged-template surface structurally; narrow
+    // explicitly at the boundary like the other stores do.
+    const assetFlowStore = createPostgresAssetFlowStore(pool as unknown as AssetFlowSql);
+    const handlers = createAssetFlowHandlers({ store: assetFlowStore });
+    const aggregationHandlers = {
+      'asset-flow': createAssetFlowAggregationHandler({ store: assetFlowStore }),
+    };
+    queueWorkers = startQueueWorkers({ registry: queueRegistry, handlers, aggregationHandlers });
     app.log.info('Queue workers started (ledger-operations, aggregation-jobs)');
 
     await app.listen({ port: config.PORT, host: '0.0.0.0' });
