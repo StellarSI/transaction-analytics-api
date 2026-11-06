@@ -155,6 +155,49 @@ Payloads not yet consumed by an aggregator are validated and acknowledged; the
 dead letter queue is tracked in issue #98. Redis connection and health checks
 live in `src/redis/`.
 
+### Asset flow aggregates (issue #18)
+
+`src/aggregator/asset-flows.ts` maintains the `asset_flow_aggregates`
+hypertable: per asset code + issuer and per time bucket (`1m`, `1h`, `1d`) it
+keeps `volume` (sum of leg amounts), `payments` (legs that moved the asset)
+and `net_flow` (issuer-attributed net issuance: amount paid out of the
+issuer minus amount received by the issuer; always `0` for the native asset
+and for movements between non-issuer accounts).
+
+- **Real-time path**: the `ledger-operations` worker folds every payment /
+  path-payment job into the minute, hour and day buckets of the ledger
+  close time and upserts additively (`ON CONFLICT ... DO UPDATE SET ... =
+  existing + EXCLUDED`), so concurrent workers never double-count.
+- **Reorg path**: if an incoming operation carries a ledger sequence lower
+  than the high-water mark (kept per process and optionally persisted via
+  the shared cursor store), the aggregator deletes the trailing window of
+  buckets and re-aggregates them from `ledger_operations` — the fork-safe
+  source of truth. The same recompute runs for the `asset-flow` jobs the
+  Hubble backfill enqueues (one per closed bucket via the
+  `aggregation-jobs` worker).
+- **Precision**: amounts are summed as bigint stroops (7 decimals); no
+  floating point anywhere. When Horizon exposes only a bound for a path
+  payment leg (`send_max` / `destination_min_amount`), that bound is used as
+  an approximation and a warning is logged.
+- **`asset_issuer` convention**: the native asset (and rows re-aggregated
+  from `ledger_operations`) are stored as `''` because the hypertable
+  primary key treats NULLs as distinct — upserts need a real value to
+  conflict on.
+- **Events**: every upsert emits an `asset_flow_updated` event via a small
+  sink interface (`createRedisAssetFlowSink` publishes to the
+  `eta:flows:assets` channel for the future SSE/webhook fan-out). Sink
+  failures are logged and counted, never thrown.
+- **Metrics**: `eta_asset_flow_operations_processed_total{kind}`,
+  `eta_asset_flow_buckets_updated_total{interval}`,
+  `eta_asset_flow_reorgs_detected_total{interval}` and
+  `eta_asset_flow_failures_total{stage}`.
+
+Unit tests live in `src/aggregator/__tests__/asset-flows.test.ts` and run on
+the in-memory store (`createInMemoryAssetFlowStore`) — no database or Redis
+required. Path payments are treated as two legs (send asset out of the
+sender, destination asset into the recipient); the batch re-aggregation
+path counts the single asset recorded in `ledger_operations`.
+
 ### Historical backfill (Hubble / BigQuery)
 
 The live Horizon/RPC ingestors only cover data from the moment they start.
