@@ -4,6 +4,7 @@ import { Queue, type ConnectionOptions, type JobsOptions } from 'bullmq';
 import { z } from 'zod';
 import { config } from '../config';
 import type {
+  ChangeTrustPayload,
   ClaimableBalancePayload,
   ClaimantInfo,
   CorridorMetadata,
@@ -148,6 +149,14 @@ const SorobanEventPayloadSchema = OperationBaseSchema.extend({
   value: z.string().optional(),
 });
 
+const ChangeTrustPayloadSchema = OperationBaseSchema.extend({
+  kind: z.literal('change_trust'),
+  trustor: z.string().min(1),
+  asset: NormalizedAssetSchema,
+  limit: z.string().min(1),
+  isDeletion: z.boolean(),
+});
+
 /** Union of every payload the ingestors can push (Zod-validated at the boundary). */
 export const LedgerOperationJobSchema = z.discriminatedUnion('kind', [
   PaymentPayloadSchema,
@@ -156,6 +165,7 @@ export const LedgerOperationJobSchema = z.discriminatedUnion('kind', [
   LiquidityPoolPayloadSchema,
   ClaimableBalancePayloadSchema,
   SorobanEventPayloadSchema,
+  ChangeTrustPayloadSchema,
 ]);
 
 export type LedgerOperationJob = z.infer<typeof LedgerOperationJobSchema>;
@@ -164,7 +174,7 @@ export type LedgerOperationJob = z.infer<typeof LedgerOperationJobSchema>;
  * Follow-up work produced by the aggregration passes tracked in issues
  * #18/#19/#21 as an alternative to time-bucketed aggregate jobs.
  */
-export const AGGREGATION_KINDS = ['asset-flow', 'account-flow', 'corridor'] as const;
+export const AGGREGATION_KINDS = ['asset-flow', 'account-flow', 'corridor', 'trustline'] as const;
 
 export type AggregationJobKind = (typeof AGGREGATION_KINDS)[number];
 
@@ -348,6 +358,9 @@ export function createBullMQOperationQueue(
     pushSorobanEvent(payload: SorobanEventPayload) {
       return push(payload);
     },
+    pushChangeTrust(payload: ChangeTrustPayload) {
+      return push(payload);
+    },
   };
 }
 
@@ -363,6 +376,7 @@ export function defaultOperationQueue(
 
 /* Re-exported so downstream modules can type handlers without importing zod. */
 export type {
+  ChangeTrustPayload,
   ClaimableBalancePayload,
   ClaimantInfo,
   CorridorMetadata,
