@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Registry } from 'prom-client';
 import {
-  TrustlineAggregator,
   bucketStartIso,
   computeActiveHoursCount,
   computeDormancyDays,
