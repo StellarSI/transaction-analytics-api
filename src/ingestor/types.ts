@@ -87,6 +87,9 @@ export interface HorizonOperationRecord {
   claimant?: string;
   /** Sponsor account that covered the create operation's reserve. */
   sponsor?: string;
+  // change trust (trustline)
+  trustor?: string;
+  limit?: string;
 }
 
 /**
@@ -125,12 +128,17 @@ export const OPERATION_TYPE_CLAIM_CLAIMABLE_BALANCE = 15;
 export const OPERATION_NAME_CREATE_CLAIMABLE_BALANCE = 'create_claimable_balance';
 export const OPERATION_NAME_CLAIM_CLAIMABLE_BALANCE = 'claim_claimable_balance';
 
+// Change trust operation (trustline) (issue #20).
+export const OPERATION_TYPE_CHANGE_TRUST = 6;
+export const OPERATION_NAME_CHANGE_TRUST = 'change_trust';
+
 /** Queue names shared by the ingestors and the future queue consumer. */
 export const PAYMENT_QUEUE = 'ingest:payments';
 export const PATH_PAYMENT_QUEUE = 'ingest:path-payments';
 export const OFFER_QUEUE = 'ingest:offers';
 export const CLAIMABLE_BALANCE_QUEUE = 'ingest:claimable-balances';
 export const SOROBAN_EVENT_QUEUE = 'ingest:soroban-events';
+export const CHANGE_TRUST_QUEUE = 'ingest:change-trusts';
 
 /**
  * Destination for parsed operations. The Redis list implementation here is a
@@ -144,6 +152,7 @@ export interface OperationQueue {
   pushLiquidityPool(payload: LiquidityPoolPayload): Promise<void>;
   pushClaimableBalance(payload: ClaimableBalancePayload): Promise<void>;
   pushSorobanEvent(payload: SorobanEventPayload): Promise<void>;
+  pushChangeTrust(payload: ChangeTrustPayload): Promise<void>;
 }
 
 /** Fields common to both payload kinds. */
@@ -295,6 +304,19 @@ export interface ClaimableBalancePayload extends OperationBase {
   claimant?: string;
   /** Sponsor covering the held balance (create operations), when known. */
   sponsor?: string;
+}
+
+/** Payload pushed for `type_i === 6` (changeTrust) operations (issue #20). */
+export interface ChangeTrustPayload extends OperationBase {
+  kind: 'change_trust';
+  /** Issuer the trustline is for (`trustor` in Horizon). */
+  trustor: string;
+  /** Asset the trustline is for. */
+  asset: NormalizedAsset;
+  /** Trust limit as decimal string; `0.0000000` removes the trustline. */
+  limit: string;
+  /** True when the trustline is being removed (`limit` is zero). */
+  isDeletion: boolean;
 }
 
 /** Payload pushed for Soroban contract events ingested via Stellar RPC.
@@ -526,4 +548,46 @@ export function claimableBalanceVariant(
 /** True when a record is a claimable balance create or claim operation. */
 export function isClaimableBalanceOperation(record: HorizonOperationRecord): boolean {
   return claimableBalanceVariant(record) !== null;
+}
+
+/** True when a record is a changeTrust operation (`type_i === 6`). */
+export function isChangeTrustOperation(record: HorizonOperationRecord): boolean {
+  return (
+    record.type === OPERATION_NAME_CHANGE_TRUST ||
+    normalizeTypeI(record.type_i) === OPERATION_TYPE_CHANGE_TRUST
+  );
+}
+
+/**
+ * Parses a Horizon changeTrust record into a `ChangeTrustPayload`, or null
+ * when the record is not a changeTrust operation or lacks required fields.
+ */
+export function parseChangeTrust(
+  record: HorizonOperationRecord,
+): ChangeTrustPayload | null {
+  if (!isChangeTrustOperation(record)) return null;
+  if (!record.id || !record.paging_token) return null;
+  if (!record.trustor || record.limit === undefined) return null;
+
+  const asset = normalizeAsset(record);
+  if (!asset) return null;
+
+  const trimmedLimit = record.limit.trim();
+  // Validate amount parses as a decimal string with <=7 fractional digits.
+  if (!/^([+-]?)(\d+)(?:\.(\d{1,7}))?$/.test(trimmedLimit)) return null;
+  const isDeletion = parseFloat(trimmedLimit) === 0;
+
+  return {
+    kind: 'change_trust',
+    id: record.id,
+    cursor: record.paging_token,
+    ledger: typeof record.ledger === 'number' ? record.ledger : undefined,
+    ledgerClosedAt: record.created_at,
+    txHash: record.transaction_hash,
+    sourceAccount: record.source_account,
+    trustor: record.trustor,
+    asset,
+    limit: record.limit,
+    isDeletion,
+  };
 }
