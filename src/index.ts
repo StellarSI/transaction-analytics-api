@@ -12,6 +12,12 @@ import {
   createPostgresAssetFlowStore,
   type AssetFlowSql,
 } from './aggregator/asset-flows';
+import {
+  createAccountFlowAggregationHandler,
+  createAccountFlowHandlers,
+  createPostgresAccountFlowStore,
+  type AccountFlowSql,
+} from './aggregator/account-insights';
 
 const app = Fastify({
   logger: {
@@ -50,10 +56,14 @@ async function start(): Promise<void> {
     // The pool satisfies the tagged-template surface structurally; narrow
     // explicitly at the boundary like the other stores do.
     const assetFlowStore = createPostgresAssetFlowStore(pool as unknown as AssetFlowSql);
-    const handlers = createAssetFlowHandlers({ store: assetFlowStore });
+    const assetHandlers = createAssetFlowHandlers({ store: assetFlowStore });
+    const accountFlowStore = createPostgresAccountFlowStore(pool as unknown as AccountFlowSql);
+    const accountHandlers = createAccountFlowHandlers({ store: accountFlowStore });
     const aggregationHandlers = {
       'asset-flow': createAssetFlowAggregationHandler({ store: assetFlowStore }),
+      'account-flow': createAccountFlowAggregationHandler({ store: accountFlowStore }),
     };
+    const handlers = { ...assetHandlers, ...accountHandlers };
     queueWorkers = startQueueWorkers({ registry: queueRegistry, handlers, aggregationHandlers });
     app.log.info('Queue workers started (ledger-operations, aggregation-jobs)');
 
