@@ -539,25 +539,38 @@ export function createInMemoryAccountFlowStore(
             { volume: bigint; count: number; direction: 'in' | 'out' }
           >();
           // Start with existing counterparties
-          for (const [cid, cinfo] of (existing.counterparties as any)) {
-            mergedCp.set(cid, { volume: cinfo.volume, count: cinfo.count, direction: cinfo.direction });
-          }
+          ;(existing.counterparties as Array<{
+            account_id: string;
+            volume: string;
+            count: number;
+            direction: 'in' | 'out';
+          }>).forEach((cinfo) => {
+            const cid = cinfo.account_id;
+            const existingVol = mergedCp.get(cid)?.volume ?? 0n;
+            const newVol = cinfo.volume > '' ? (BigInt(cinfo.volume) > existingVol ? BigInt(cinfo.volume) : existingVol) : existingVol;
+            mergedCp.set(cid, { volume: newVol, count: cinfo.count, direction: cinfo.direction });
+          });
           // Merge new counterparties
-          for (const [cid, cinfo] of (delta.counterparties as any)) {
-            const existingCp = mergedCp.get(cid);
+          ;(delta.counterparties as Array<{
+            account_id: string;
+            volume: string;
+            count: number;
+            direction: 'in' | 'out';
+          }>).forEach((cinfo) => {
+            const existingCp = mergedCp.get(cinfo.account_id);
             if (existingCp) {
               // Take volume max, add counts
-              const newVol = existingCp.volume >= cinfo.volume ? existingCp.volume : cinfo.volume;
+              const newVol = cinfo.volume > '' ? (BigInt(cinfo.volume) > existingCp.volume ? BigInt(cinfo.volume) : existingCp.volume) : existingCp.volume;
               existingCp.volume = newVol;
               existingCp.count += cinfo.count;
             } else {
-              mergedCp.set(cid, {
-                volume: cinfo.volume,
+              mergedCp.set(cinfo.account_id, {
+                volume: cinfo.volume ? BigInt(cinfo.volume) : BigInt(0),
                 count: cinfo.count,
                 direction: cinfo.direction,
               });
             }
-          }
+          });
           const merged: AccountFlowAggregate = {
             ...existing,
             inflow: formatAmount(
