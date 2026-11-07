@@ -38,6 +38,20 @@ export interface CorridorAggregate {
   payments: number;
 }
 
+export interface TrustlineAggregate {
+  bucket_start: string;
+  interval: string;
+  account_id: string;
+  trustline_count: number;
+  new_trustlines: number;
+  removed_trustlines: number;
+  trust_limit_changes: number;
+  total_trust_limit: string;
+  payments_count: number;
+  active_hours: number;
+  dormancy_days: number;
+}
+
 export interface AggregateFilters {
   interval: string;
   from_bucket_start?: string;
@@ -56,6 +70,7 @@ export interface AggregateFilters {
 export const ASSET_FLOW_AGGREGATES_TABLE = 'asset_flow_aggregates';
 export const ACCOUNT_FLOW_AGGREGATES_TABLE = 'account_flow_aggregates';
 export const CORRIDOR_AGGREGATES_TABLE = 'corridor_aggregates';
+export const TRUSTLINE_AGGREGATES_TABLE = 'trustline_aggregates';
 
 export const ASSET_FLOW_AGGREGATES_COLUMNS = [
   'bucket_start',
@@ -88,9 +103,25 @@ export const CORRIDOR_AGGREGATES_COLUMNS = [
   'payments',
 ] as const;
 
+export const TRUSTLINE_AGGREGATES_COLUMNS = [
+  'bucket_start',
+  'interval',
+  'account_id',
+  'trustline_count',
+  'new_trustlines',
+  'removed_trustlines',
+  'trust_limit_changes',
+  'total_trust_limit',
+  'payments_count',
+  'active_hours',
+  'dormancy_days',
+] as const;
+
 export type AssetFlowAggregateColumn =
   (typeof ASSET_FLOW_AGGREGATES_COLUMNS)[number];
 export type AccountFlowAggregateColumn =
   (typeof ACCOUNT_FLOW_AGGREGATES_COLUMNS)[number];
 export type CorridorAggregateColumn =
   (typeof CORRIDOR_AGGREGATES_COLUMNS)[number];
+export type TrustlineAggregateColumn =
+  (typeof TRUSTLINE_AGGREGATES_COLUMNS)[number];

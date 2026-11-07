@@ -1,4 +1,5 @@
 import type {
+  ChangeTrustPayload,
   ClaimableBalancePayload,
   LiquidityPoolPayload,
   OfferPayload,
@@ -8,6 +9,7 @@ import type {
   SorobanEventPayload,
 } from './types';
 import {
+  CHANGE_TRUST_QUEUE,
   CLAIMABLE_BALANCE_QUEUE,
   OFFER_QUEUE,
   PATH_PAYMENT_QUEUE,
@@ -61,6 +63,9 @@ export function createRedisListQueue(client: {
     },
     pushSorobanEvent(payload: SorobanEventPayload) {
       return push(SOROBAN_EVENT_QUEUE, payload);
+    },
+    pushChangeTrust(payload: ChangeTrustPayload) {
+      return push(CHANGE_TRUST_QUEUE, payload);
     },
   };
 }
