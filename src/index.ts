@@ -24,6 +24,12 @@ import {
   createPostgresTrustlineStore,
   type TrustlineSql,
 } from './aggregator/trustlines';
+import {
+  createCorridorAggregationHandler,
+  createCorridorHandlers,
+  createPostgresCorridorStore,
+  type CorridorSql,
+} from './aggregator/corridors';
 
 const app = Fastify({
   logger: {
@@ -67,12 +73,15 @@ async function start(): Promise<void> {
     const accountHandlers = createAccountFlowHandlers({ store: accountFlowStore });
     const trustlineStore = createPostgresTrustlineStore(pool as unknown as TrustlineSql);
     const trustlineHandlers = createTrustlineHandlers({ store: trustlineStore });
+    const corridorStore = createPostgresCorridorStore(pool as unknown as CorridorSql);
+    const corridorHandlers = createCorridorHandlers({ store: corridorStore });
     const aggregationHandlers = {
       'asset-flow': createAssetFlowAggregationHandler({ store: assetFlowStore }),
       'account-flow': createAccountFlowAggregationHandler({ store: accountFlowStore }),
       trustline: createTrustlineAggregationHandler({ store: trustlineStore }),
+      corridor: createCorridorAggregationHandler({ store: corridorStore }),
     };
-    const handlers = { ...assetHandlers, ...accountHandlers, ...trustlineHandlers };
+    const handlers = { ...assetHandlers, ...accountHandlers, ...trustlineHandlers, ...corridorHandlers };
     queueWorkers = startQueueWorkers({ registry: queueRegistry, handlers, aggregationHandlers });
     app.log.info('Queue workers started (ledger-operations, aggregation-jobs)');
 
