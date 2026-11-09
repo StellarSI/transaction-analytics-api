@@ -148,9 +148,10 @@ describe('TimeBucketRefresher', () => {
     const calls: string[] = [];
     const refresher = new TimeBucketRefresher({
       metrics,
-      sql: (async () => {
+      sql: ((() => {
         calls.push('refresh');
-      }) as never,
+        return Promise.resolve();
+      }) as never),
     });
     await refresher.refreshAll();
     expect(calls.length).toBe(CONTINUOUS_AGGREGATE_DEFINITIONS.length);

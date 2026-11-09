@@ -311,11 +311,9 @@ export class BucketedTable<TKey extends string = string> {
   }
 
   query(interval: TimeBucketInterval): Array<{ bucketStart: string; key: TKey; value: bigint }> {
-    const minuteRows = [...this.rows.values()].filter((r) => {
-      // Rows are stored at the finest granularity they were inserted at;
-      // query() rolls them up to the requested interval.
-      return true;
-    });
+    // Rows are stored at the finest granularity they were inserted at;
+    // query() rolls them up to the requested interval.
+    const minuteRows = [...this.rows.values()];
     return rollupBuckets(minuteRows, interval);
   }
 }
@@ -445,7 +443,7 @@ export function createTimeBucketAggregationHandler(
     }
     const bucketStart = job.bucketStart;
     const interval: TimeBucketInterval =
-      job.interval === '1h' ? '1h' : job.interval === '1d' ? '1d' : '1m';
+      job.interval === '1h' ? '1h' : '1m';
     await refresher.refreshAll();
     refresher.rollup([], interval);
     void bucketStart;
