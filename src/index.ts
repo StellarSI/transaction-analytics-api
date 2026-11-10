@@ -1,11 +1,14 @@
-import Fastify from 'fastify';
 import { config } from './config';
-import { closePool, dbHealthCheck, pool } from './db/pool';
+import { closePool, pool } from './db/pool';
 import { runMigrations } from './db/migrate';
 import { closeRedis } from './redis/client';
-import { redisHealthCheck } from './redis/health';
 import { createQueueRegistry, type QueueRegistry } from './queue';
 import { startQueueWorkers, type QueueWorkers } from './queue/processors';
+import { createApp } from './api/server';
+import {
+  createPostgresAssetFlowRepository,
+  type AssetFlowSql as AssetFlowQuerySql,
+} from './api/repository/asset-flows';
 import {
   createAssetFlowAggregationHandler,
   createAssetFlowHandlers,
@@ -31,30 +34,34 @@ import {
   type CorridorSql,
 } from './aggregator/corridors';
 
-const app = Fastify({
-  logger: {
-    level: config.LOG_LEVEL,
-    transport:
-      config.NODE_ENV === 'development'
-        ? { target: 'pino-pretty', options: { colorize: true } }
-        : undefined,
-  },
-});
-
-app.get('/v1/health', async () => {
-  const database = await dbHealthCheck();
-  const redis = await redisHealthCheck();
-  return {
-    status: database.ok && redis.ok ? 'ok' : 'degraded',
-    timestamp: new Date().toISOString(),
-    services: { database, redis },
-  };
-});
-
-let queueRegistry: QueueRegistry | null = null;
-let queueWorkers: QueueWorkers | null = null;
-
 async function start(): Promise<void> {
+  // HTTP API (issue #23): Fastify with helmet/CORS/compression, request ids,
+  // RFC 7807 errors and the /v1 routes (health + asset flows). The asset flow
+  // endpoint (issue #24) reads through the shared Postgres pool.
+  const app = await createApp({
+    repository: createPostgresAssetFlowRepository(pool as unknown as AssetFlowQuerySql),
+  });
+
+  let queueRegistry: QueueRegistry | null = null;
+  let queueWorkers: QueueWorkers | null = null;
+
+  /** Runs the full drain (HTTP, queue, DB, Redis) and exits with `code`. */
+  const shutdown = async (code: 0 | 1): Promise<void> => {
+    app.log.info('Shutting down');
+    await app.close();
+    // Drain the workers first: Worker.close() resolves once in-flight jobs
+    // finished, so nothing in the pipeline is dropped mid-process.
+    try {
+      await queueWorkers?.close();
+    } catch (err) {
+      app.log.warn(err, 'Queue workers reported a non-fatal error while draining');
+    }
+    await queueRegistry?.close();
+    await closePool();
+    await closeRedis();
+    process.exit(code);
+  };
+
   try {
     const { applied } = await runMigrations();
     app.log.info({ applied }, 'Database migrations applied');
@@ -81,12 +88,21 @@ async function start(): Promise<void> {
       trustline: createTrustlineAggregationHandler({ store: trustlineStore }),
       corridor: createCorridorAggregationHandler({ store: corridorStore }),
     };
-    const handlers = { ...assetHandlers, ...accountHandlers, ...trustlineHandlers, ...corridorHandlers };
+    const handlers = {
+      ...assetHandlers,
+      ...accountHandlers,
+      ...trustlineHandlers,
+      ...corridorHandlers,
+    };
     queueWorkers = startQueueWorkers({ registry: queueRegistry, handlers, aggregationHandlers });
     app.log.info('Queue workers started (ledger-operations, aggregation-jobs)');
 
     await app.listen({ port: config.PORT, host: '0.0.0.0' });
     app.log.info(`Server listening on port ${config.PORT}`);
+
+    // Graceful shutdown (issue #23).
+    process.on('SIGTERM', () => void shutdown(0));
+    process.on('SIGINT', () => void shutdown(0));
   } catch (err) {
     app.log.error(err);
     await shutdown(1);
@@ -94,23 +110,3 @@ async function start(): Promise<void> {
 }
 
 void start();
-
-/** Runs the full drain (HTTP, queue, DB, Redis) and exits with `code`. */
-async function shutdown(code: 0 | 1): Promise<void> {
-  app.log.info('Shutting down');
-  await app.close();
-  // Drain the workers first: Worker.close() resolves once in-flight jobs
-  // finished, so nothing in the pipeline is dropped mid-process.
-  try {
-    await queueWorkers?.close();
-  } catch (err) {
-    app.log.warn(err, 'Queue workers reported a non-fatal error while draining');
-  }
-  await queueRegistry?.close();
-  await closePool();
-  await closeRedis();
-  process.exit(code);
-}
-
-process.on('SIGTERM', () => void shutdown(0));
-process.on('SIGINT', () => void shutdown(0));
