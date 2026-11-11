@@ -1,14 +1,22 @@
 import { config } from './config';
 import { closePool, pool } from './db/pool';
 import { runMigrations } from './db/migrate';
-import { closeRedis } from './redis/client';
+import { closeRedis, getRedis } from './redis/client';
 import { createQueueRegistry, type QueueRegistry } from './queue';
 import { startQueueWorkers, type QueueWorkers } from './queue/processors';
 import { createApp } from './api/server';
 import {
+  createPostgresAccountFlowRepository,
+  type AccountFlowSql as AccountFlowQuerySql,
+} from './api/repository/account-flows';
+import {
   createPostgresAssetFlowRepository,
   type AssetFlowSql as AssetFlowQuerySql,
 } from './api/repository/asset-flows';
+import {
+  createPostgresCorridorFlowRepository,
+  type CorridorFlowSql as CorridorFlowQuerySql,
+} from './api/repository/corridor-flows';
 import {
   createAssetFlowAggregationHandler,
   createAssetFlowHandlers,
@@ -33,13 +41,19 @@ import {
   createPostgresCorridorStore,
   type CorridorSql,
 } from './aggregator/corridors';
+import { TRANSACTIONS_STREAM_CHANNEL } from './api/routes/transactions/stream';
 
 async function start(): Promise<void> {
   // HTTP API (issue #23): Fastify with helmet/CORS/compression, request ids,
-  // RFC 7807 errors and the /v1 routes (health + asset flows). The asset flow
-  // endpoint (issue #24) reads through the shared Postgres pool.
+  // RFC 7807 errors and the /v1 routes (health + flow/stream endpoints).
   const app = await createApp({
     repository: createPostgresAssetFlowRepository(pool as unknown as AssetFlowQuerySql),
+    accountFlowRepository: createPostgresAccountFlowRepository(
+      pool as unknown as AccountFlowQuerySql,
+    ),
+    corridorFlowRepository: createPostgresCorridorFlowRepository(
+      pool as unknown as CorridorFlowQuerySql,
+    ),
   });
 
   let queueRegistry: QueueRegistry | null = null;
@@ -88,12 +102,39 @@ async function start(): Promise<void> {
       trustline: createTrustlineAggregationHandler({ store: trustlineStore }),
       corridor: createCorridorAggregationHandler({ store: corridorStore }),
     };
-    const handlers = {
+    const baseHandlers = {
       ...assetHandlers,
       ...accountHandlers,
       ...trustlineHandlers,
       ...corridorHandlers,
     };
+
+    // Publish ingested ledger operations to the transaction stream channel so
+    // `GET /v1/transactions/stream` can fan them out as SSE events (issue #27).
+    const publishTransaction = async (payload: unknown): Promise<void> => {
+      try {
+        const redis = getRedis();
+        const record = payload as { id?: string; cursor?: string };
+        const id = record?.id ?? record?.cursor ?? `${Date.now()}`;
+        await redis.publish(
+          TRANSACTIONS_STREAM_CHANNEL,
+          JSON.stringify({ id, data: payload }),
+        );
+      } catch (err) {
+        app.log.warn(err, 'Failed to publish transaction stream event');
+      }
+    };
+
+    const handlers = Object.fromEntries(
+      Object.entries(baseHandlers).map(([kind, handler]) => [
+        kind,
+        async (payload: unknown, job: unknown) => {
+          await (handler as (p: unknown, j: unknown) => Promise<void> | void)(payload, job);
+          await publishTransaction(payload);
+        },
+      ]),
+    ) as typeof baseHandlers;
+
     queueWorkers = startQueueWorkers({ registry: queueRegistry, handlers, aggregationHandlers });
     app.log.info('Queue workers started (ledger-operations, aggregation-jobs)');
 
