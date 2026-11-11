@@ -88,15 +88,25 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
         },
         () => undefined,
       );
-      if (options.repository) {
-        registerAssetFlowRoutes(v1, { repository: options.repository });
-      }
-      if (options.accountFlowRepository) {
-        registerAccountFlowRoutes(v1, { repository: options.accountFlowRepository });
-      }
-      if (options.corridorFlowRepository) {
-        registerCorridorFlowRoutes(v1, { repository: options.corridorFlowRepository });
-      }
+
+      void v1.register(
+        (flows, _flowOpts, flowsDone) => {
+          registerAssetFlowRoutes(flows, { repository: options.repository }, () => undefined);
+          registerAccountFlowRoutes(
+            flows,
+            { repository: options.accountFlowRepository },
+            () => undefined,
+          );
+          registerCorridorFlowRoutes(
+            flows,
+            { repository: options.corridorFlowRepository },
+            () => undefined,
+          );
+          flowsDone();
+        },
+        { prefix: '/flows' },
+      );
+
       registerTransactionStreamRoutes(v1, options);
       done();
     },

@@ -45,15 +45,18 @@ const querySchema = z
     path: ['from'],
   });
 
-export interface RegisterAccountFlowRoutesOptions {
-  repository: AccountFlowRepository;
+export interface AccountFlowRouteOptions {
+  repository?: AccountFlowRepository;
 }
 
 export function registerAccountFlowRoutes(
   app: FastifyInstance,
-  options: RegisterAccountFlowRoutesOptions,
+  options: AccountFlowRouteOptions,
+  done: (err?: Error) => void,
 ): void {
-  app.get('/flows/accounts/:account', async (request, reply) => {
+  const repository = options.repository;
+
+  app.get<{ Params: { account: string } }>('/accounts/:account', async (request, reply) => {
     const params = accountParamSchema.safeParse((request.params as { account?: string }).account);
     if (!params.success) {
       throw new ValidationError('Invalid account identifier', zodToFields(params.error));
@@ -64,9 +67,13 @@ export function registerAccountFlowRoutes(
       throw new ValidationError('Invalid account flow query', zodToFields(query.error));
     }
 
+    if (!repository) {
+      throw new InternalError('Account flow repository is not configured');
+    }
+
     let buckets;
     try {
-      buckets = await options.repository.getAccountFlowBuckets({
+      buckets = await repository.getAccountFlowBuckets({
         accountId: params.data,
         interval: query.data.interval as AccountFlowInterval,
         from: query.data.from,
@@ -84,4 +91,6 @@ export function registerAccountFlowRoutes(
       buckets,
     });
   });
+
+  done();
 }

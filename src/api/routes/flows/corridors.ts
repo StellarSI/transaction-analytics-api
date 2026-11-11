@@ -55,23 +55,30 @@ const querySchema = z
     path: ['from'],
   });
 
-export interface RegisterCorridorFlowRoutesOptions {
-  repository: CorridorFlowRepository;
+export interface CorridorFlowRouteOptions {
+  repository?: CorridorFlowRepository;
 }
 
 export function registerCorridorFlowRoutes(
   app: FastifyInstance,
-  options: RegisterCorridorFlowRoutesOptions,
+  options: CorridorFlowRouteOptions,
+  done: (err?: Error) => void,
 ): void {
-  app.get('/flows/corridors', async (request, reply) => {
+  const repository = options.repository;
+
+  app.get('/corridors', async (request, reply) => {
     const query = querySchema.safeParse(request.query);
     if (!query.success) {
       throw new ValidationError('Invalid corridor flow query', zodToFields(query.error));
     }
 
+    if (!repository) {
+      throw new InternalError('Corridor flow repository is not configured');
+    }
+
     let corridors;
     try {
-      corridors = await options.repository.getCorridorBuckets({
+      corridors = await repository.getCorridorBuckets({
         interval: query.data.interval as CorridorFlowInterval,
         from: query.data.from,
         to: query.data.to,
@@ -96,4 +103,6 @@ export function registerCorridorFlowRoutes(
       },
     });
   });
+
+  done();
 }
