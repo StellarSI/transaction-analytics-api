@@ -22,13 +22,25 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { config } from '../config';
 import { setErrorHandler } from './errors';
+import type { AccountFlowRepository } from './repository/account-flows';
 import type { AssetFlowRepository } from './repository/asset-flows';
+import type { CorridorFlowRepository } from './repository/corridor-flows';
+import { registerAccountFlowRoutes } from './routes/flows/accounts';
 import { registerAssetFlowRoutes } from './routes/flows/assets';
+import { registerCorridorFlowRoutes } from './routes/flows/corridors';
 import { registerHealthRoutes, type HealthRouteOptions } from './routes/health';
+import {
+  registerTransactionStreamRoutes,
+  type TransactionStreamOptions,
+} from './routes/transactions/stream';
 
-export interface CreateAppOptions extends HealthRouteOptions {
+export interface CreateAppOptions extends HealthRouteOptions, TransactionStreamOptions {
   /** Read model used by `GET /v1/flows/assets/:asset`. */
   repository?: AssetFlowRepository;
+  /** Read model used by `GET /v1/flows/accounts/:account`. */
+  accountFlowRepository?: AccountFlowRepository;
+  /** Read model used by `GET /v1/flows/corridors`. */
+  corridorFlowRepository?: CorridorFlowRepository;
   /**
    * Fastify logger override. Pass `false` to silence request logs (unit
    * tests); by default the server logs at `LOG_LEVEL` and pretty-prints in
@@ -66,16 +78,40 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
 
   setErrorHandler(app);
 
-  await app.register(registerHealthRoutes, {
-    prefix: '/v1',
-    checkDatabase: options.checkDatabase,
-    checkRedis: options.checkRedis,
-  });
+  await app.register(
+    (v1, _opts, done) => {
+      registerHealthRoutes(
+        v1,
+        {
+          checkDatabase: options.checkDatabase,
+          checkRedis: options.checkRedis,
+        },
+        () => undefined,
+      );
 
-  await app.register(registerAssetFlowRoutes, {
-    prefix: '/v1/flows',
-    repository: options.repository,
-  });
+      void v1.register(
+        (flows, _flowOpts, flowsDone) => {
+          registerAssetFlowRoutes(flows, { repository: options.repository }, () => undefined);
+          registerAccountFlowRoutes(
+            flows,
+            { repository: options.accountFlowRepository },
+            () => undefined,
+          );
+          registerCorridorFlowRoutes(
+            flows,
+            { repository: options.corridorFlowRepository },
+            () => undefined,
+          );
+          flowsDone();
+        },
+        { prefix: '/flows' },
+      );
+
+      registerTransactionStreamRoutes(v1, options);
+      done();
+    },
+    { prefix: '/v1' },
+  );
 
   return app;
 }
