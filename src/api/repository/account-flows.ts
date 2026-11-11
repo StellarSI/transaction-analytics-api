@@ -120,7 +120,7 @@ export function createPostgresAccountFlowRepository(sql: AccountFlowSql): Accoun
          WHERE ${conditions.join(' AND ')}
          ORDER BY bucket_start ASC
          LIMIT $4`,
-        values,
+        values as never[],
       );
       return rows.map(toAccountFlowBucket);
     },

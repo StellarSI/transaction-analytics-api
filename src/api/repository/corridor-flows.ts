@@ -130,7 +130,7 @@ export function createPostgresCorridorFlowRepository(sql: CorridorFlowSql): Corr
          ORDER BY bucket_start ASC, source_asset ASC, dest_asset ASC
          LIMIT ${limitParam}
          OFFSET ${offsetParam}`,
-        values,
+        values as never[],
       );
       return rows.map(toCorridorBucket);
     },

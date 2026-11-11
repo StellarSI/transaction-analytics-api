@@ -79,11 +79,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   setErrorHandler(app);
 
   await app.register(
-    async (v1) => {
-      registerHealthRoutes(v1, {
-        checkDatabase: options.checkDatabase,
-        checkRedis: options.checkRedis,
-      });
+    (v1, _opts, done) => {
+      registerHealthRoutes(
+        v1,
+        {
+          checkDatabase: options.checkDatabase,
+          checkRedis: options.checkRedis,
+        },
+        () => undefined,
+      );
       if (options.repository) {
         registerAssetFlowRoutes(v1, { repository: options.repository });
       }
@@ -94,6 +98,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
         registerCorridorFlowRoutes(v1, { repository: options.corridorFlowRepository });
       }
       registerTransactionStreamRoutes(v1, options);
+      done();
     },
     { prefix: '/v1' },
   );

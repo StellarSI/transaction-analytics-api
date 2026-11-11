@@ -103,22 +103,6 @@ function extractString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-function collectStrings(value: unknown, out: Set<string>): void {
-  if (typeof value === 'string') {
-    if (value) out.add(value);
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) collectStrings(entry, out);
-    return;
-  }
-  if (value && typeof value === 'object') {
-    for (const entry of Object.values(value as Record<string, unknown>)) {
-      collectStrings(entry, out);
-    }
-  }
-}
-
 function assetKeysFromData(data: unknown): Set<string> {
   const keys = new Set<string>();
   if (!data || typeof data !== 'object') return keys;
@@ -265,7 +249,7 @@ export function createRedisTransactionStreamSubscriber(
 
   return {
     async subscribe(onEvent) {
-      subscriber = createRedisClient({ maxRetriesPerRequest: null });
+      subscriber = createRedisClient();
       handler = (_channelName, message) => {
         const event = parseStreamEvent(message);
         if (event) onEvent(event);
