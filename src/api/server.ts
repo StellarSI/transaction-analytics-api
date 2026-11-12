@@ -29,12 +29,16 @@ import { registerAccountFlowRoutes } from './routes/flows/accounts';
 import { registerAssetFlowRoutes } from './routes/flows/assets';
 import { registerCorridorFlowRoutes } from './routes/flows/corridors';
 import { registerHealthRoutes, type HealthRouteOptions } from './routes/health';
+import { registerSubscriptionRoutes, type SubscriptionRouteOptions } from './routes/subscriptions';
 import {
   registerTransactionStreamRoutes,
   type TransactionStreamOptions,
 } from './routes/transactions/stream';
 
-export interface CreateAppOptions extends HealthRouteOptions, TransactionStreamOptions {
+export interface CreateAppOptions
+  extends HealthRouteOptions,
+    TransactionStreamOptions,
+    SubscriptionRouteOptions {
   /** Read model used by `GET /v1/flows/assets/:asset`. */
   repository?: AssetFlowRepository;
   /** Read model used by `GET /v1/flows/accounts/:account`. */
@@ -85,6 +89,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
         {
           checkDatabase: options.checkDatabase,
           checkRedis: options.checkRedis,
+          checkHorizon: options.checkHorizon,
+          checkRpc: options.checkRpc,
+          getLatestLedger: options.getLatestLedger,
         },
         () => undefined,
       );
@@ -105,6 +112,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
           flowsDone();
         },
         { prefix: '/flows' },
+      );
+
+      registerSubscriptionRoutes(
+        v1,
+        { store: options.store, requireApiKey: options.requireApiKey },
+        () => undefined,
       );
 
       registerTransactionStreamRoutes(v1, options);
