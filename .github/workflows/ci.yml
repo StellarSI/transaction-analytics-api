@@ -110,6 +110,10 @@ jobs:
           DATABASE_URL: postgres://test:test@localhost:5432/test
           REDIS_URL: redis://localhost:6379
           NODE_ENV: test
+          # Integration tests load src/config (which requires API_KEY_SALT at
+          # import time). Only read when the vitest projects config actually
+          # discovers tests (see vitest.config.ts); harmless otherwise.
+          API_KEY_SALT: integration-test-salt-min-16-chars
 
   build:
     name: Build

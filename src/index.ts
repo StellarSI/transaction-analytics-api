@@ -18,6 +18,10 @@ import {
   type CorridorFlowSql as CorridorFlowQuerySql,
 } from './api/repository/corridor-flows';
 import {
+  createPostgresSubscriptionStore,
+  type SubscriptionSql,
+} from './api/repository/subscriptions';
+import {
   createAssetFlowAggregationHandler,
   createAssetFlowHandlers,
   createPostgresAssetFlowStore,
@@ -54,6 +58,7 @@ async function start(): Promise<void> {
     corridorFlowRepository: createPostgresCorridorFlowRepository(
       pool as unknown as CorridorFlowQuerySql,
     ),
+    store: createPostgresSubscriptionStore(pool as unknown as SubscriptionSql),
   });
 
   let queueRegistry: QueueRegistry | null = null;
