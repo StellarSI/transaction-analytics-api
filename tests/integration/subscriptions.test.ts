@@ -30,21 +30,23 @@ describe('POST /v1/subscriptions (integration)', () => {
       logger: false,
       store: createPostgresSubscriptionStore(pool as unknown as SubscriptionSql),
       // Keep health independent of Redis, Horizon, RPC and the ingestion lag.
-      checkDatabase: async () => ({ ok: true, latencyMs: 1, detail: 'postgres reachable' }),
-      checkRedis: async () => ({ ok: true, latencyMs: 1, detail: 'redis reachable' }),
-      checkHorizon: async () => ({
-        ok: true,
-        latencyMs: 1,
-        detail: 'horizon reachable',
-        latest_ledger: 100,
-      }),
-      checkRpc: async () => ({
-        ok: true,
-        latencyMs: 1,
-        detail: 'stellar rpc reachable',
-        latest_ledger: 100,
-      }),
-      getLatestLedger: async () => 100,
+      checkDatabase: () => Promise.resolve({ ok: true, latencyMs: 1, detail: 'postgres reachable' }),
+      checkRedis: () => Promise.resolve({ ok: true, latencyMs: 1, detail: 'redis reachable' }),
+      checkHorizon: () =>
+        Promise.resolve({
+          ok: true,
+          latencyMs: 1,
+          detail: 'horizon reachable',
+          latest_ledger: 100,
+        }),
+      checkRpc: () =>
+        Promise.resolve({
+          ok: true,
+          latencyMs: 1,
+          detail: 'stellar rpc reachable',
+          latest_ledger: 100,
+        }),
+      getLatestLedger: () => Promise.resolve(100),
     });
   }, 60000);
 
