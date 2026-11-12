@@ -37,11 +37,11 @@ import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { config } from '../../config';
-import { InternalError, UnauthorizedError, ValidationError, zodToFields } from '../../errors';
+import { InternalError, UnauthorizedError, ValidationError, zodToFields } from '../errors';
 import type {
   SubscriptionStore,
   SubscriptionTargetType,
-} from '../../repository/subscriptions';
+} from '../repository/subscriptions';
 
 export interface AuthenticatedApiKey {
   /** Opaque identifier of the authenticated API key (stored on the row). */
@@ -55,16 +55,16 @@ export type RequireApiKey = (request: FastifyRequest) => Promise<AuthenticatedAp
  * Returns null unless the request carries a `sk_live_`-shaped Bearer token;
  * the returned `id` is a salted digest of the token, not the token itself.
  */
-export const defaultRequireApiKey: RequireApiKey = async (request) => {
+export const defaultRequireApiKey: RequireApiKey = (request) => {
   const header = request.headers.authorization;
   const match = typeof header === 'string' ? /^Bearer ([A-Za-z0-9_-]{16,512})$/.exec(header) : null;
   if (!match) {
-    return null;
+    return Promise.resolve(null);
   }
   const digest = createHash('sha256')
     .update(`${config.API_KEY_SALT}:${match[1]}`)
     .digest('hex');
-  return { id: digest };
+  return Promise.resolve({ id: digest });
 };
 
 /** Stellar account id (G....). */
