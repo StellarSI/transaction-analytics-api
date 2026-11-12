@@ -119,6 +119,73 @@ curl -H "Authorization: Bearer $API_KEY" \
 }
 ```
 
+### Webhook subscriptions
+
+`POST /v1/subscriptions` — registers a webhook for an account, an asset or a
+threshold. Authentication is required (`Authorization: Bearer $API_KEY`);
+each subscription is stored against the presented key.
+
+```bash
+curl -X POST "http://localhost:3000/v1/subscriptions" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"target_type": "account", "target_value": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+       "url": "https://example.com/webhook", "secret": "a-signing-secret-min-16",
+       "events": ["account_credited"]}'
+```
+
+```json
+{
+  "id": "2f9d6f66-83fe-4de7-9c3b-9c21d0b16b6d",
+  "target_type": "account",
+  "target_value": "GA5Z...KZVN",
+  "url": "https://example.com/webhook",
+  "events": ["account_credited"],
+  "created_at": "2026-11-12T00:00:00.000Z"
+}
+```
+
+Inputs are validated with Zod: `url` must be HTTPS, `target_value` must match
+its `target_type` (`account` → `G…` account id, `asset` → `XLM` or
+`CODE:ISSUER`, `threshold` → a positive decimal, at most 7 fraction digits),
+`secret` at least 16 characters, `events` lowercase dotted identifiers.
+Subscriptions are stored in the `subscriptions` table (migration
+`0006_subscriptions.sql`), each with the API key that created it. Delivery,
+retries and signing are separate work; see issue #28 for scope.
+
+> **Authentication note:** the API key check is a temporary stand-in until
+> issue #30 (API key authentication) lands — the middleware will verify
+> argon2-hashed keys against an `api_keys` table and the
+> `api_key_id` recorded here will be the middleware's verified key id. Until
+> then, the presented Bearer token is only used as an opaque tenant id; it is
+> not verified to exist.
+
+### Health & ingestion lag
+
+`GET /v1/health` — reports reachability of Postgres, Redis, Horizon and the
+Stellar RPC, plus the ingestion lag between the current Horizon head and the
+newest ledger ingested into the database. No authentication required; always
+200 (a dependency outage shows up in `status`, not in the HTTP code).
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-11-12T00:00:00.000Z",
+  "checks": {
+    "database": { "ok": true, "latencyMs": 2, "detail": "postgres reachable" },
+    "redis": { "ok": true, "latencyMs": 1, "detail": "redis reachable" },
+    "horizon": { "ok": true, "latencyMs": 18, "detail": "horizon reachable", "latest_ledger": 7654321 },
+    "rpc": { "ok": true, "latencyMs": 12, "detail": "stellar rpc reachable", "latest_ledger": 7654321 }
+  },
+  "ingestion_lag_seconds": 10
+}
+```
+
+`ingestion_lag_seconds` is the number of ledgers the database trails the
+Horizon head, multiplied by the ~5 second ledger close time; it is `null`
+when the head (or the newest ingested ledger) is unknown, which also reports
+`degraded`. OpenAPI documentation for both endpoints lands with issue #45.
+
 ## Use cases
 
 - Anchors monitoring settlement and liquidity corridors
