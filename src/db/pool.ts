@@ -43,6 +43,20 @@ export async function dbHealthCheck(): Promise<{
 }
 
 /**
+ * Sequence of the most recent ledger ingested into `ledger_operations`, or
+ * `null` when nothing has been ingested yet. Used by GET /v1/health to
+ * report the ingestion lag against the current Horizon head.
+ */
+export async function getLatestLedgerFromDb(): Promise<number | null> {
+  const rows = await pool`
+    SELECT COALESCE(MAX(ledger_sequence), 0)::bigint AS max_seq
+    FROM ledger_operations
+  `;
+  const maxSeq = Number(rows[0]?.max_seq ?? 0);
+  return Number.isFinite(maxSeq) && maxSeq > 0 ? maxSeq : null;
+}
+
+/**
  * Closes the pool gracefully so database connections are released when the
  * process is stopped.
  */

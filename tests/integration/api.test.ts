@@ -48,9 +48,23 @@ describe('GET /v1/flows/assets/:asset (integration)', () => {
       logger: false,
       repository: createPostgresAssetFlowRepository(pool as unknown as AssetFlowSql),
       // The health route is covered by unit tests; keep this suite focused on
-      // the asset flow read model and independent of Redis.
+      // the asset flow read model and independent of Redis, Horizon, the
+      // Soroban RPC and the ingestion lag calculation.
       checkDatabase: async () => ({ ok: true, latencyMs: 1, detail: 'postgres reachable' }),
       checkRedis: async () => ({ ok: true, latencyMs: 1, detail: 'redis reachable' }),
+      checkHorizon: async () => ({
+        ok: true,
+        latencyMs: 1,
+        detail: 'horizon reachable',
+        latest_ledger: 10,
+      }),
+      checkRpc: async () => ({
+        ok: true,
+        latencyMs: 1,
+        detail: 'stellar rpc reachable',
+        latest_ledger: 10,
+      }),
+      getLatestLedger: async () => 10,
     });
   }, 60000);
 

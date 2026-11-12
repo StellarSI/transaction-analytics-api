@@ -85,6 +85,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
         {
           checkDatabase: options.checkDatabase,
           checkRedis: options.checkRedis,
+          checkHorizon: options.checkHorizon,
+          checkRpc: options.checkRpc,
+          getLatestLedger: options.getLatestLedger,
         },
         () => undefined,
       );
