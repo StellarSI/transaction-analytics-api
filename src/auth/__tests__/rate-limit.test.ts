@@ -56,10 +56,13 @@ describe('rate limit tiers (issue #31)', () => {
 });
 
 describe('createRedisRateLimiter', () => {
+  // A timestamp that starts a window exactly, so the window boundaries in the
+  // assertions are unambiguous.
+  const now = 1_700_004_000_000;
+
   it('counts the requests of a key against its tier budget', async () => {
     const redis = createFakeRedis();
     const limiter = createRedisRateLimiter(redis);
-    const now = 1_700_000_000_000;
 
     const first = await limiter.consume('key-1', 'free', now);
     const second = await limiter.consume('key-1', 'free', now);
@@ -73,7 +76,6 @@ describe('createRedisRateLimiter', () => {
   it('counts every key separately', async () => {
     const redis = createFakeRedis();
     const limiter = createRedisRateLimiter(redis);
-    const now = 1_700_000_000_000;
 
     await limiter.consume('key-1', 'free', now);
     const other = await limiter.consume('key-2', 'free', now);
@@ -84,7 +86,6 @@ describe('createRedisRateLimiter', () => {
   it('starts a new budget in the next window', async () => {
     const redis = createFakeRedis();
     const limiter = createRedisRateLimiter(redis);
-    const now = 1_700_000_000_000;
 
     await limiter.consume('key-1', 'free', now);
     const nextWindow = await limiter.consume('key-1', 'free', now + 60_000);
@@ -96,7 +97,6 @@ describe('createRedisRateLimiter', () => {
   it('reports when the window resets', async () => {
     const redis = createFakeRedis();
     const limiter = createRedisRateLimiter(redis);
-    const now = 1_700_000_000_000;
 
     const decision = await limiter.consume('key-1', 'pro', now);
 
@@ -108,7 +108,7 @@ describe('createRedisRateLimiter', () => {
     const redis = createFakeRedis();
     const limiter = createRedisRateLimiter(redis);
 
-    await limiter.consume('key-1', 'free', 1_700_000_000_000);
+    await limiter.consume('key-1', 'free', now);
 
     const entry = [...redis.store.values()][0];
     expect(entry.ttl).toBe(RATE_LIMIT_WINDOW_SECONDS);

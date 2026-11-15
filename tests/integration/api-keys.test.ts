@@ -158,10 +158,13 @@ describe('API key authentication and rate limiting (integration)', () => {
   it('counts every request of a key against its tier budget in Redis', async () => {
     const limiter = createRedisRateLimiter(getRedis());
     const keyId = `integration-limit-${Date.now()}`;
+    // One timestamp for the whole burst so the window cannot roll over while
+    // the budget is consumed.
+    const now = Date.now();
 
     const decisions = [];
     for (let request = 0; request < 101; request++) {
-      decisions.push(await limiter.consume(keyId, 'free'));
+      decisions.push(await limiter.consume(keyId, 'free', now));
     }
 
     expect(decisions[0].allowed).toBe(true);
