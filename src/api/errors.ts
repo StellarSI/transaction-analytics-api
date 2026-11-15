@@ -10,7 +10,8 @@
  * `instance` members plus two extension members used across the API:
  *
  * - `code`   — a stable machine-readable identifier (`validation_error`,
- *             `not_found`, `unauthorized`, `rate_limit`, `internal_error`).
+ *             `not_found`, `unauthorized`, `forbidden`, `rate_limit`,
+ *             `internal_error`).
  * - `fields` — for validation errors, a map of request field to the list of
  *             problems found on that field.
  */
@@ -25,6 +26,7 @@ export type ProblemCode =
   | 'validation_error'
   | 'not_found'
   | 'unauthorized'
+  | 'forbidden'
   | 'rate_limit'
   | 'internal_error';
 
@@ -51,6 +53,7 @@ const PROBLEM_TITLES: Record<ProblemCode, string> = {
   validation_error: 'Validation Error',
   not_found: 'Not Found',
   unauthorized: 'Unauthorized',
+  forbidden: 'Forbidden',
   rate_limit: 'Too Many Requests',
   internal_error: 'Internal Server Error',
 };
@@ -59,6 +62,7 @@ const PROBLEM_STATUS: Record<ProblemCode, number> = {
   validation_error: 400,
   not_found: 404,
   unauthorized: 401,
+  forbidden: 403,
   rate_limit: 429,
   internal_error: 500,
 };
@@ -110,6 +114,14 @@ export class UnauthorizedError extends AppError {
   }
 }
 
+/** 403 — the request is authenticated but not allowed to do this. */
+export class ForbiddenError extends AppError {
+  constructor(message = 'Forbidden') {
+    super('forbidden', message);
+    this.name = 'ForbiddenError';
+  }
+}
+
 /** 429 — the client has sent too many requests. */
 export class RateLimitError extends AppError {
   constructor(message = 'Too many requests') {
@@ -146,6 +158,8 @@ function problemCodeForStatus(status: number): ProblemCode | undefined {
       return 'validation_error';
     case 401:
       return 'unauthorized';
+    case 403:
+      return 'forbidden';
     case 404:
       return 'not_found';
     case 429:

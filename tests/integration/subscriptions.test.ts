@@ -4,6 +4,12 @@ import { pool } from '@/db/pool';
 import { runMigrations } from '@/db/migrate';
 import { createApp } from '@/api/server';
 import {
+  createPostgresApiKeyStore,
+  issueApiKey,
+  type ApiKeySql,
+  type ApiKeyStore,
+} from '@/auth/api-keys';
+import {
   createPostgresSubscriptionStore,
   type SubscriptionSql,
 } from '@/api/repository/subscriptions';
@@ -13,22 +19,26 @@ import {
  *
  * Requires the TimescaleDB instance provided by CI (DATABASE_URL). Verifies
  * that a subscription round-trips through the `subscriptions` table — the
- * stand-in API key guard (issue #30) namespaces the row to the presented
- * bearer token.
+ * API key middleware (issue #30) namespaces the row to the verified key.
  */
 
 const ACCOUNT = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
 
 describe('POST /v1/subscriptions (integration)', () => {
   let app: FastifyInstance;
+  let apiKeys: ApiKeyStore;
 
   beforeAll(async () => {
     await runMigrations('up');
     await pool`DELETE FROM subscriptions`;
+    await pool`DELETE FROM api_keys`;
+
+    apiKeys = createPostgresApiKeyStore(pool as unknown as ApiKeySql);
 
     app = await createApp({
       logger: false,
       store: createPostgresSubscriptionStore(pool as unknown as SubscriptionSql),
+      apiKeyStore: apiKeys,
       // Keep health independent of Redis, Horizon, RPC and the ingestion lag.
       checkDatabase: () => Promise.resolve({ ok: true, latencyMs: 1, detail: 'postgres reachable' }),
       checkRedis: () => Promise.resolve({ ok: true, latencyMs: 1, detail: 'redis reachable' }),
@@ -53,15 +63,20 @@ describe('POST /v1/subscriptions (integration)', () => {
   afterAll(async () => {
     await app?.close();
     await pool`DELETE FROM subscriptions`;
+    await pool`DELETE FROM api_keys`;
     await pool.end();
   });
 
   it('registers a subscription and persists it against the presented API key', async () => {
-    const token = 'integration-test-token-that-is-long';
+    const issued = await issueApiKey(apiKeys, {
+      name: 'subscription-key',
+      permissions: ['subscriptions:write'],
+      tier: 'free',
+    });
     const response = await app.inject({
       method: 'POST',
       url: '/v1/subscriptions',
-      headers: { authorization: `Bearer ${token}` },
+      headers: { authorization: `Bearer ${issued.plaintext}` },
       payload: {
         target_type: 'account',
         target_value: ACCOUNT,
@@ -99,8 +114,9 @@ describe('POST /v1/subscriptions (integration)', () => {
     expect(rows[0].secret).toBe('an-integration-signing-secret');
     expect(rows[0].events).toEqual(['account_credited']);
     expect(rows[0].active).toBe(true);
-    // Salted digest of the token, never the token itself.
-    expect(String(rows[0].api_key_id)).toMatch(/^[0-9a-f]{64}$/);
+    // The verified key id, never the presented key.
+    expect(String(rows[0].api_key_id)).toBe(issued.apiKey.id);
+    expect(String(rows[0].api_key_id)).not.toContain(issued.plaintext);
   });
 
   it('rejects a request without a bearer token', async () => {

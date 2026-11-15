@@ -81,13 +81,16 @@ automatically on startup.
 | `asset_flow_aggregates` | Hypertable | `bucket_start` | 1 hour | Per-asset volume, payments, net flow |
 | `account_flow_aggregates` | Hypertable | `bucket_start` | 1 hour | Per-account inflow, outflow, counterparties |
 | `corridor_aggregates` | Hypertable | `bucket_start` | 1 hour | Per-corridor volume and payments between anchors |
+| `api_keys` | Table | — | — | Argon2 hashes of the API keys, their permissions and rate limit tier |
+| `subscriptions` | Table | — | — | Webhook subscriptions, owned by the API key that created them |
 
 All hypertables use compression with a 30-day policy on older chunks, and
 aggregate tables enforce uniqueness on `(bucket_start, interval, ...)` to
 prevent duplicate buckets.
 
 Schema TypeScript definitions live in `src/db/schema/` (`ledger.ts`,
-`aggregates.ts`) and are shared between ingestion and query code.
+`aggregates.ts`, `api-keys.ts`) and are shared between ingestion and query
+code.
 
 ## API overview
 
@@ -153,12 +156,61 @@ Subscriptions are stored in the `subscriptions` table (migration
 `0006_subscriptions.sql`), each with the API key that created it. Delivery,
 retries and signing are separate work; see issue #28 for scope.
 
-> **Authentication note:** the API key check is a temporary stand-in until
-> issue #30 (API key authentication) lands — the middleware will verify
-> argon2-hashed keys against an `api_keys` table and the
-> `api_key_id` recorded here will be the middleware's verified key id. Until
-> then, the presented Bearer token is only used as an opaque tenant id; it is
-> not verified to exist.
+### API keys
+
+Protected endpoints expect an API key in the `Authorization` header:
+
+```bash
+curl -X POST "http://localhost:3000/v1/subscriptions" \
+  -H "Authorization: Bearer $API_KEY" \
+  ...
+```
+
+- Keys are issued as `sk_live_<random>` and are shown **once**. Only an
+  argon2id hash salted with `API_KEY_SALT` is stored (`api_keys` table,
+  migration `0007_api_keys.sql`), so a leaked database cannot be used to
+  reconstruct a key.
+- Every key carries a set of permissions (`flows:read`, `subscriptions:read`,
+  `subscriptions:write`, `streams:read`, or the wildcard `*`) and a rate limit
+  tier.
+- A request without a key, or with an unknown or revoked key, is rejected
+  with `401`; a key that misses the permission a route requires is rejected
+  with `403`.
+
+Issue a key with the store helper:
+
+```ts
+import { createPostgresApiKeyStore, issueApiKey } from './src/auth/api-keys';
+import { pool } from './src/db/pool';
+
+const { apiKey, plaintext } = await issueApiKey(
+  createPostgresApiKeyStore(pool),
+  { name: 'trading-bot', permissions: ['flows:read'], tier: 'pro' },
+);
+// `plaintext` is the only time the key is available.
+```
+
+### Rate limits
+
+Every API key has a per-minute budget, set by its tier:
+
+| Tier | Requests / minute |
+| --- | --- |
+| `free` | 100 |
+| `pro` | 1 000 |
+| `enterprise` | 10 000 |
+
+The counter lives in Redis, so the budget is shared by every instance of the
+API. Authenticated responses carry the usual headers:
+
+```text
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 42
+X-RateLimit-Reset: 1763222400
+```
+
+A request that exhausts its budget is rejected with `429` and a
+`Retry-After` header.
 
 ### Health & ingestion lag
 

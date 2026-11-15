@@ -6,6 +6,11 @@ import { createQueueRegistry, type QueueRegistry } from './queue';
 import { startQueueWorkers, type QueueWorkers } from './queue/processors';
 import { createApp } from './api/server';
 import {
+  createPostgresApiKeyStore,
+  type ApiKeySql,
+} from './auth/api-keys';
+import { createRedisRateLimiter } from './auth/rate-limit';
+import {
   createPostgresAccountFlowRepository,
   type AccountFlowSql as AccountFlowQuerySql,
 } from './api/repository/account-flows';
@@ -59,6 +64,11 @@ async function start(): Promise<void> {
       pool as unknown as CorridorFlowQuerySql,
     ),
     store: createPostgresSubscriptionStore(pool as unknown as SubscriptionSql),
+    // API key authentication (issue #30) and the per-key rate limit
+    // (issue #31) share the pool and the Redis client with the rest of the
+    // application.
+    apiKeyStore: createPostgresApiKeyStore(pool as unknown as ApiKeySql),
+    rateLimiter: createRedisRateLimiter(getRedis()),
   });
 
   let queueRegistry: QueueRegistry | null = null;
