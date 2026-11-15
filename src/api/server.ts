@@ -22,6 +22,8 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { config } from '../config';
 import { setErrorHandler } from './errors';
+import { createApiKeyGuard } from '../auth/middleware';
+import type { ApiKeyStore } from '../auth/api-keys';
 import type { AccountFlowRepository } from './repository/account-flows';
 import type { AssetFlowRepository } from './repository/asset-flows';
 import type { CorridorFlowRepository } from './repository/corridor-flows';
@@ -45,6 +47,11 @@ export interface CreateAppOptions
   accountFlowRepository?: AccountFlowRepository;
   /** Read model used by `GET /v1/flows/corridors`. */
   corridorFlowRepository?: CorridorFlowRepository;
+  /**
+   * Store used to authenticate API keys (issue #30). Without it the protected
+   * routes reject every request instead of trusting an unverified token.
+   */
+  apiKeyStore?: ApiKeyStore;
   /**
    * Fastify logger override. Pass `false` to silence request logs (unit
    * tests); by default the server logs at `LOG_LEVEL` and pretty-prints in
@@ -82,6 +89,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
 
   setErrorHandler(app);
 
+  // API key authentication (issue #30). It is optional so the health endpoint
+  // and the read-only flow endpoints keep working without a configured
+  // store; a protected route then rejects every request rather than trusting
+  // an unverified token.
+  const requireApiKey = options.apiKeyStore
+    ? createApiKeyGuard({ store: options.apiKeyStore })
+    : undefined;
+
   await app.register(
     (v1, _opts, done) => {
       registerHealthRoutes(
@@ -116,7 +131,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
 
       registerSubscriptionRoutes(
         v1,
-        { store: options.store, requireApiKey: options.requireApiKey },
+        {
+          store: options.store,
+          requireApiKey,
+        },
         () => undefined,
       );
 

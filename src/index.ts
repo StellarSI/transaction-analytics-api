@@ -6,6 +6,10 @@ import { createQueueRegistry, type QueueRegistry } from './queue';
 import { startQueueWorkers, type QueueWorkers } from './queue/processors';
 import { createApp } from './api/server';
 import {
+  createPostgresApiKeyStore,
+  type ApiKeySql,
+} from './auth/api-keys';
+import {
   createPostgresAccountFlowRepository,
   type AccountFlowSql as AccountFlowQuerySql,
 } from './api/repository/account-flows';
@@ -59,6 +63,9 @@ async function start(): Promise<void> {
       pool as unknown as CorridorFlowQuerySql,
     ),
     store: createPostgresSubscriptionStore(pool as unknown as SubscriptionSql),
+    // API key authentication (issue #30) shares the pool with the rest of
+    // the application.
+    apiKeyStore: createPostgresApiKeyStore(pool as unknown as ApiKeySql),
   });
 
   let queueRegistry: QueueRegistry | null = null;

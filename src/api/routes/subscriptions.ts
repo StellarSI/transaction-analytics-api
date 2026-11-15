@@ -17,55 +17,23 @@
  * }
  * ```
  *
- * ## API key authentication — temporary stand-in, TODO(#30)
+ * ## Authentication
  *
- * Issue #30 (`src/auth/api-keys.ts`, `src/auth/middleware.ts`) will ship the
- * real API key middleware: `sk_live_` keys hashed with argon2 against the
- * configured `API_KEY_SALT`, stored in an `api_keys` table, looked up on
- * every request. Until that merges, {@link defaultRequireApiKey} is a
- * **stand-in**: it reads `Authorization: Bearer <token>`, hashes the token
- * with `API_KEY_SALT`, and uses the digest as an opaque tenant id attached
- * to the subscription row. It performs NO verification that the key exists or
- * is authorized; it only namespaces subscriptions to the presented token.
- *
- * The dependency is explicit at the wiring boundary via the `requireApiKey`
- * option — swap in the real middleware there (or set `options.requireApiKey`)
- * without touching this route.
+ * The route is protected by the API key middleware (issue #30): the guard
+ * verifies the presented key against the `api_keys` table and attaches the
+ * key to the request. The per-key rate limit (issue #31) is applied on top
+ * of it. Both are injected by `src/api/server.ts`, which builds them from
+ * the configured store and limiter.
  */
 
-import { createHash } from 'node:crypto';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { config } from '../../config';
 import { InternalError, UnauthorizedError, ValidationError, zodToFields } from '../errors';
 import type {
   SubscriptionStore,
   SubscriptionTargetType,
 } from '../repository/subscriptions';
-
-export interface AuthenticatedApiKey {
-  /** Opaque identifier of the authenticated API key (stored on the row). */
-  id: string;
-}
-
-export type RequireApiKey = (request: FastifyRequest) => Promise<AuthenticatedApiKey | null>;
-
-/**
- * TEMPORARY stand-in for the #30 middleware (read the module docstring).
- * Returns null unless the request carries a `sk_live_`-shaped Bearer token;
- * the returned `id` is a salted digest of the token, not the token itself.
- */
-export const defaultRequireApiKey: RequireApiKey = (request) => {
-  const header = request.headers.authorization;
-  const match = typeof header === 'string' ? /^Bearer ([A-Za-z0-9_-]{16,512})$/.exec(header) : null;
-  if (!match) {
-    return Promise.resolve(null);
-  }
-  const digest = createHash('sha256')
-    .update(`${config.API_KEY_SALT}:${match[1]}`)
-    .digest('hex');
-  return Promise.resolve({ id: digest });
-};
+import type { ApiKeyGuard } from '../../auth/middleware';
 
 /** Stellar account id (G....). */
 const STELLAR_ACCOUNT = /^G[A-Z2-7]{55}$/;
@@ -120,8 +88,8 @@ type SubscriptionBody = z.infer<typeof bodySchema>;
 export interface SubscriptionRouteOptions {
   /** Storage for subscriptions; REQUIRED in production (wired from src/index.ts). */
   store?: SubscriptionStore;
-  /** Override the API key guard (defaults to the temporary stand-in, see TODO(#30)). */
-  requireApiKey?: RequireApiKey;
+  /** Authenticates the request with an API key (issue #30). */
+  requireApiKey?: ApiKeyGuard;
 }
 
 function parseBody(body: unknown): SubscriptionBody {
@@ -137,9 +105,12 @@ export function registerSubscriptionRoutes(
   options: SubscriptionRouteOptions,
   done: (err?: Error) => void,
 ): void {
-  const requireApiKey = options.requireApiKey ?? defaultRequireApiKey;
-
   app.post('/subscriptions', async (request, reply) => {
+    const requireApiKey = options.requireApiKey;
+    if (!requireApiKey) {
+      throw new InternalError('API key authentication is not configured');
+    }
+
     const key = await requireApiKey(request);
     if (!key) {
       throw new UnauthorizedError('A valid API key is required');
