@@ -34,6 +34,7 @@ import type {
   SubscriptionTargetType,
 } from '../repository/subscriptions';
 import type { ApiKeyGuard } from '../../auth/middleware';
+import type { RateLimitGuard } from '../../auth/rate-limit';
 
 /** Stellar account id (G....). */
 const STELLAR_ACCOUNT = /^G[A-Z2-7]{55}$/;
@@ -90,6 +91,8 @@ export interface SubscriptionRouteOptions {
   store?: SubscriptionStore;
   /** Authenticates the request with an API key (issue #30). */
   requireApiKey?: ApiKeyGuard;
+  /** Applies the per-API-key rate limit (issue #31). */
+  rateLimit?: RateLimitGuard;
 }
 
 function parseBody(body: unknown): SubscriptionBody {
@@ -114,6 +117,10 @@ export function registerSubscriptionRoutes(
     const key = await requireApiKey(request);
     if (!key) {
       throw new UnauthorizedError('A valid API key is required');
+    }
+
+    if (options.rateLimit) {
+      await options.rateLimit(request, reply);
     }
 
     const body = parseBody(request.body);
