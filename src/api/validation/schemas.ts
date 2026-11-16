@@ -178,7 +178,9 @@ function parseOrThrow(schema: ZodTypeAny, value: unknown, detail: string): unkno
  * `request.validated` for handlers that prefer explicit access.
  */
 export function validateRequest(schemas: RequestValidationSchemas) {
-  return async (request: FastifyRequest, _reply: FastifyReply): Promise<void> => {
+  // Synchronous on purpose: Zod's safeParse is sync, and a void-returning hook
+  // satisfies Fastify's preValidation type without tripping no-misused-promises.
+  return (request: FastifyRequest, _reply: FastifyReply): void => {
     const validated: ValidatedRequestParts = request.validated ?? {};
     if (schemas.params) {
       const parsed = parseOrThrow(schemas.params, request.params, 'Invalid request parameters');
