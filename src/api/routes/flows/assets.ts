@@ -48,7 +48,6 @@ export function registerAssetFlowRoutes(
 ): void {
   const repository = options.repository;
 
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   app.get<{ Params: { asset: string }; Querystring: unknown }>(
     '/assets/:asset',
     {
@@ -57,7 +56,7 @@ export function registerAssetFlowRoutes(
         query: assetFlowQuerySchema,
       }),
     },
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- Fastify supports async route handlers
     async (request) => {
       const { asset, assetCode, assetIssuer } = parseAsset(
         (request.params as { asset: string }).asset,

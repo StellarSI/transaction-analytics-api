@@ -22,11 +22,10 @@ export function registerSubscriptionRoutes(
   options: SubscriptionRouteOptions,
   done: (err?: Error) => void,
 ): void {
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   app.post(
     '/subscriptions',
     { preValidation: validateRequest({ body: subscriptionBodySchema }) },
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- Fastify supports async route handlers
     async (request, reply) => {
       const requireApiKey = options.requireApiKey;
       if (!requireApiKey) {

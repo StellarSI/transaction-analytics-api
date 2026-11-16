@@ -29,11 +29,13 @@ export function registerCorridorFlowRoutes(
 ): void {
   const repository = options.repository;
 
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
-  app.get('/corridors', {
-    preValidation: validateRequest({ query: corridorFlowQuerySchema }),
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
-  }, async (request, reply) => {
+  app.get(
+    '/corridors',
+    {
+      preValidation: validateRequest({ query: corridorFlowQuerySchema }),
+    },
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- Fastify supports async route handlers
+    async (request, reply) => {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     const query = request.query as unknown as CorridorFlowQuery;
 

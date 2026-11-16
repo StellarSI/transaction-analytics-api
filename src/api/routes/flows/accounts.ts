@@ -28,14 +28,16 @@ export function registerAccountFlowRoutes(
 ): void {
   const repository = options.repository;
 
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
-  app.get<{ Params: { account: string } }>('/accounts/:account', {
-    preValidation: validateRequest({
-      params: accountFlowParamsSchema,
-      query: accountFlowQuerySchema,
-    }),
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
-  }, async (request, reply) => {
+  app.get<{ Params: { account: string } }>(
+    '/accounts/:account',
+    {
+      preValidation: validateRequest({
+        params: accountFlowParamsSchema,
+        query: accountFlowQuerySchema,
+      }),
+    },
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- Fastify supports async route handlers
+    async (request, reply) => {
     const params = request.params as { account: string };
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     const query = request.query as unknown as AccountFlowQuery;

@@ -235,11 +235,10 @@ export function registerTransactionStreamRoutes(
   const maxBuffered = options.maxBufferedEvents ?? DEFAULT_MAX_BUFFERED_EVENTS;
   const channel = options.transactionStreamChannel ?? TRANSACTIONS_STREAM_CHANNEL;
 
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   app.get(
     '/transactions/stream',
     { preValidation: validateRequest({ query: transactionStreamQuerySchema }) },
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- Fastify supports async route handlers
     async (request: FastifyRequest, reply: FastifyReply) => {
       const filters = normalizeStreamQuery(request.query);
       const lastEventIdHeader = request.headers['last-event-id'];
