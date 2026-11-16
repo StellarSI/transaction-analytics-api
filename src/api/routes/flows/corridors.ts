@@ -33,7 +33,7 @@ export function registerCorridorFlowRoutes(
   app.get('/corridors', {
     preValidation: validateRequest({ query: corridorFlowQuerySchema }),
   }, async (request, reply) => {
-    const query = request.query as CorridorFlowQuery;
+    const query = request.query as unknown as CorridorFlowQuery;
 
     if (!repository) {
       throw new InternalError('Corridor flow repository is not configured');

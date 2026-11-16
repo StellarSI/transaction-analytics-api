@@ -36,7 +36,7 @@ export function registerAccountFlowRoutes(
     }),
   }, async (request, reply) => {
     const params = request.params as { account: string };
-    const query = request.query as AccountFlowQuery;
+    const query = request.query as unknown as AccountFlowQuery;
 
     if (!repository) {
       throw new InternalError('Account flow repository is not configured');

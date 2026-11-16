@@ -49,7 +49,7 @@ export function registerAssetFlowRoutes(
   const repository = options.repository;
 
   // eslint-disable-next-line @typescript-eslint/no-misused-promises
-  app.get<{ Params: { asset: string }; Querystring: Record<string, unknown> }>(
+  app.get<{ Params: { asset: string }; Querystring: unknown }>(
     '/assets/:asset',
     {
       preValidation: validateRequest({
@@ -61,7 +61,7 @@ export function registerAssetFlowRoutes(
       const { asset, assetCode, assetIssuer } = parseAsset(
         (request.params as { asset: string }).asset,
       );
-      const query = request.query as AssetFlowQuery;
+      const query = request.query as unknown as AssetFlowQuery;
 
       if (!repository) {
         throw new InternalError('Asset flow repository is not configured');
