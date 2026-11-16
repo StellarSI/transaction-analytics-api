@@ -1,30 +1,6 @@
-/**
- * Transaction SSE stream route (issue #27): `GET /v1/transactions/stream`.
- *
- * Streams live transactions as Server-Sent Events.
- *
- * Query parameters:
- * - `accounts[]` / `accounts` — filter by account (source/destination/from/to).
- * - `assets[]` / `assets`     — filter by asset key (e.g. `USDC:G...`, `XLM`).
- * - `types[]` / `types`       — filter by operation/transaction type or kind.
- * - `cursor`                  — resume cursor; clients may also send
- *                                `Last-Event-ID` for resume.
- *
- * Events:
- * - `transaction` with `id` and JSON `data`.
- * - `retry: <ms>` hint for client reconnection.
- * - periodic `: heartbeat` comments to keep connections alive.
- *
- * Real-time updates are consumed from a Redis pub/sub channel (default
- * `eta:transactions`, emitted by the aggregator/ingestor pipeline). The
- * subscriber is injectable for tests; when none is provided the endpoint
- * returns 503 (stream source unavailable).
- */
-
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+﻿import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createRedisClient } from '../../../redis/client';
-import { ValidationError, zodToFields } from '../../errors';
-import { z } from 'zod';
+import { transactionStreamQuerySchema, validateRequest } from '../../validation/schemas';
 
 export const TRANSACTIONS_STREAM_CHANNEL = 'eta:transactions';
 export const DEFAULT_STREAM_RETRY_MS = 5_000;
@@ -62,16 +38,6 @@ interface NormalizedStreamQuery {
   cursor?: string;
 }
 
-const querySchema = z.object({
-  accounts: z.union([z.string(), z.array(z.string())]).optional(),
-  'accounts[]': z.union([z.string(), z.array(z.string())]).optional(),
-  assets: z.union([z.string(), z.array(z.string())]).optional(),
-  'assets[]': z.union([z.string(), z.array(z.string())]).optional(),
-  types: z.union([z.string(), z.array(z.string())]).optional(),
-  'types[]': z.union([z.string(), z.array(z.string())]).optional(),
-  cursor: z.string().min(1).optional(),
-});
-
 function toStringArray(value: string | string[] | undefined): string[] {
   if (value === undefined) return [];
   const list = Array.isArray(value) ? value : [value];
@@ -86,16 +52,12 @@ function unique(values: string[]): string[] {
 }
 
 export function normalizeStreamQuery(raw: unknown): NormalizedStreamQuery {
-  const parsed = querySchema.safeParse(raw ?? {});
-  if (!parsed.success) {
-    throw new ValidationError('Invalid transaction stream query', zodToFields(parsed.error));
-  }
-  const q = parsed.data as Record<string, string | string[] | undefined>;
+  const q = (raw ?? {}) as Record<string, string | string[] | undefined>;
   return {
     accounts: unique([...toStringArray(q.accounts), ...toStringArray(q['accounts[]'])]),
     assets: unique([...toStringArray(q.assets), ...toStringArray(q['assets[]'])]),
     types: unique([...toStringArray(q.types), ...toStringArray(q['types[]'])]),
-    cursor: typeof q.cursor === 'string' ? q.cursor : undefined,
+    cursor: typeof q.cursor === 'string' && q.cursor.length > 0 ? q.cursor : undefined,
   };
 }
 
@@ -151,24 +113,13 @@ function accountsFromData(data: unknown): Set<string> {
   if (!data || typeof data !== 'object') return accounts;
   const record = data as Record<string, unknown>;
   const fields = [
-    'account',
-    'account_id',
-    'from',
-    'to',
-    'source',
-    'destination',
-    'source_account',
-    'destination_account',
-    'funder',
-    'claimant',
-    'sponsor',
-    'trustor',
+    'account', 'account_id', 'from', 'to', 'source', 'destination',
+    'source_account', 'destination_account', 'funder', 'claimant', 'sponsor', 'trustor',
   ];
   for (const field of fields) {
     const value = record[field];
     if (typeof value === 'string' && value) accounts.add(value);
   }
-  // include nested known shapes lightly
   for (const nestedKey of ['payment', 'operation', 'transaction']) {
     const nested = record[nestedKey];
     if (nested && typeof nested === 'object') {
@@ -200,20 +151,17 @@ export function matchesTransactionFilters(
 
   if (filters.accounts.length > 0) {
     const accounts = accountsFromData(event.data);
-    const matchesAccount = filters.accounts.some((account) => accounts.has(account));
-    if (!matchesAccount) return false;
+    if (!filters.accounts.some((account) => accounts.has(account))) return false;
   }
 
   if (filters.assets.length > 0) {
     const assets = assetKeysFromData(event.data);
-    const matchesAsset = filters.assets.some((asset) => assets.has(asset));
-    if (!matchesAsset) return false;
+    if (!filters.assets.some((asset) => assets.has(asset))) return false;
   }
 
   if (filters.types.length > 0) {
     const types = typesFromData(event.data);
-    const matchesType = filters.types.some((type) => types.has(type));
-    if (!matchesType) return false;
+    if (!filters.types.some((type) => types.has(type))) return false;
   }
 
   return true;
@@ -274,8 +222,6 @@ export function createRedisTransactionStreamSubscriber(
 function writeSse(reply: FastifyReply, chunk: string): boolean {
   const raw = reply.raw;
   if (raw.writableEnded || raw.destroyed) return false;
-  // Backpressure: if the client can't keep up, drop this write and let the
-  // caller decide (we drop buffered/live events rather than growing memory).
   const ok = raw.write(chunk);
   return ok !== false;
 }
@@ -289,100 +235,102 @@ export function registerTransactionStreamRoutes(
   const maxBuffered = options.maxBufferedEvents ?? DEFAULT_MAX_BUFFERED_EVENTS;
   const channel = options.transactionStreamChannel ?? TRANSACTIONS_STREAM_CHANNEL;
 
-  app.get('/transactions/stream', async (request: FastifyRequest, reply: FastifyReply) => {
-    const filters = normalizeStreamQuery(request.query);
-    const lastEventIdHeader = request.headers['last-event-id'];
-    if (!filters.cursor && typeof lastEventIdHeader === 'string' && lastEventIdHeader) {
-      filters.cursor = lastEventIdHeader;
-    }
+  app.get(
+    '/transactions/stream',
+    { preValidation: validateRequest({ query: transactionStreamQuerySchema }) },
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- Fastify supports async route handlers
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const filters = normalizeStreamQuery(request.query);
+      const lastEventIdHeader = request.headers['last-event-id'];
+      if (!filters.cursor && typeof lastEventIdHeader === 'string' && lastEventIdHeader) {
+        filters.cursor = lastEventIdHeader;
+      }
 
-    const createSubscriber =
-      options.createTransactionStreamSubscriber ??
-      (() => createRedisTransactionStreamSubscriber(channel));
+      const createSubscriber =
+        options.createTransactionStreamSubscriber ??
+        (() => createRedisTransactionStreamSubscriber(channel));
 
-    let subscriber: TransactionStreamSubscriber;
-    try {
-      subscriber = createSubscriber();
-    } catch (error) {
-      request.log.error({ err: error }, 'failed to create transaction stream subscriber');
-      return reply.code(503).send({
-        type: 'about:blank',
-        title: 'Service Unavailable',
-        status: 503,
-        detail: 'Transaction stream unavailable',
-        code: 'internal_error',
-        instance: request.url,
-      });
-    }
-
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    // Hint Fastify we've taken over the response.
-    reply.hijack();
-
-    writeSse(reply, `retry: ${retryMs}\n\n`);
-
-    let closed = false;
-    let lastCursor = filters.cursor;
-    let buffered = 0;
-
-    const cleanup = async (): Promise<void> => {
-      if (closed) return;
-      closed = true;
-      clearInterval(heartbeat);
+      let subscriber: TransactionStreamSubscriber;
       try {
-        await subscriber.close();
-      } catch {
-        // ignore cleanup errors
+        subscriber = createSubscriber();
+      } catch (error) {
+        request.log.error({ err: error }, 'failed to create transaction stream subscriber');
+        return reply.code(503).send({
+          type: 'about:blank',
+          title: 'Service Unavailable',
+          status: 503,
+          detail: 'Transaction stream unavailable',
+          code: 'internal_error',
+          instance: request.url,
+        });
       }
-      if (!reply.raw.writableEnded) {
-        reply.raw.end();
-      }
-    };
 
-    const heartbeat = setInterval(() => {
-      if (closed) return;
-      if (!writeSse(reply, ': heartbeat\n\n')) {
-        // Client/socket backpressured or stalled; drop keepalive write.
-      }
-    }, heartbeatMs);
-    heartbeat.unref?.();
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+      void reply.hijack();
 
-    const onEvent = (event: TransactionStreamEvent): void => {
-      if (closed) return;
-      // Cursor-based resume: ignore events at/before the resume cursor.
-      if (lastCursor && event.id <= lastCursor) return;
-      if (!matchesTransactionFilters(event, filters)) return;
+      writeSse(reply, `retry: ${retryMs}\n\n`);
 
-      if (buffered >= maxBuffered) {
-        // Backpressure policy: drop when the client can't keep up.
-        request.log.warn({ maxBuffered }, 'transaction stream buffer full, dropping event');
+      let closed = false;
+      let lastCursor = filters.cursor;
+      let buffered = 0;
+
+      const cleanup = async (): Promise<void> => {
+        if (closed) return;
+        closed = true;
+        clearInterval(heartbeat);
+        try {
+          await subscriber.close();
+        } catch {
+          // ignore cleanup errors
+        }
+        if (!reply.raw.writableEnded) {
+          reply.raw.end();
+        }
+      };
+
+      const heartbeat = setInterval(() => {
+        if (closed) return;
+        if (!writeSse(reply, ': heartbeat\n\n')) {
+          // backpressure/stalled socket
+        }
+      }, heartbeatMs);
+      heartbeat.unref?.();
+
+      const onEvent = (event: TransactionStreamEvent): void => {
+        if (closed) return;
+        if (lastCursor && event.id <= lastCursor) return;
+        if (!matchesTransactionFilters(event, filters)) return;
+
+        if (buffered >= maxBuffered) {
+          request.log.warn({ maxBuffered }, 'transaction stream buffer full, dropping event');
+          return;
+        }
+        buffered += 1;
+        const payload = JSON.stringify(event.data);
+        const chunk = `id: ${event.id}\nevent: transaction\ndata: ${payload}\n\n`;
+        buffered -= 1;
+        lastCursor = event.id;
+        if (!writeSse(reply, chunk)) {
+          // rely on backpressure/drop behavior
+        }
+      };
+
+      try {
+        await subscriber.subscribe(onEvent);
+      } catch (error) {
+        request.log.error({ err: error }, 'failed to subscribe to transaction stream');
+        await cleanup();
         return;
       }
-      buffered += 1;
-      const payload = JSON.stringify(event.data);
-      const chunk = `id: ${event.id}\nevent: transaction\ndata: ${payload}\n\n`;
-      buffered -= 1;
-      lastCursor = event.id;
-      if (!writeSse(reply, chunk)) {
-        // If the socket is saturated, rely on backpressure/drop behavior.
-      }
-    };
 
-    try {
-      await subscriber.subscribe(onEvent);
-    } catch (error) {
-      request.log.error({ err: error }, 'failed to subscribe to transaction stream');
-      await cleanup();
-      return;
-    }
-
-    request.raw.on('close', () => {
-      void cleanup();
-    });
-  });
+      request.raw.on('close', () => {
+        void cleanup();
+      });
+    },
+  );
 }

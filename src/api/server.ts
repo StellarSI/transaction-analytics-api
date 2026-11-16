@@ -18,10 +18,9 @@
 
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import compress from '@fastify/compress';
-import cors from '@fastify/cors';
-import helmet from '@fastify/helmet';
 import { config } from '../config';
 import { setErrorHandler } from './errors';
+import { registerSecurity } from './security';
 import { createApiKeyGuard } from '../auth/middleware';
 import { createRateLimitGuard } from '../auth/rate-limit';
 import type { ApiKeyStore } from '../auth/api-keys';
@@ -82,8 +81,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     requestIdLogLabel: 'requestId',
   });
 
-  await app.register(helmet, { global: true });
-  await app.register(cors, { origin: true, credentials: true });
+  await registerSecurity(app);
   await app.register(compress, { global: true });
 
   app.addHook('onRequest', (request, reply, done) => {

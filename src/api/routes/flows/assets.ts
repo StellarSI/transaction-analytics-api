@@ -1,51 +1,14 @@
-/**
- * Asset flow route (issue #24): `GET /v1/flows/assets/{asset}`.
- *
- * Returns time-bucketed volume, payment counts and net flow for a single
- * Stellar asset. The asset path parameter uses the `CODE:ISSUER` form shown
- * in the README (`USDC:GA5Z...`); the native asset can be requested as `XLM`.
- *
- * Query parameters:
- * - `interval` — `1m` (default `1h`), `1h` or `1d`.
- * - `from`     — inclusive ISO 8601 lower bound.
- * - `to`       — exclusive ISO 8601 upper bound.
- * - `limit`    — maximum number of buckets to return (default 100, max 1000).
- *
- * All inputs are validated with Zod; failures are reported as RFC 7807
- * validation problems by the global error handler.
- */
-
-import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
-import { InternalError, ValidationError, zodToFields } from '../../errors';
+﻿import type { FastifyInstance } from 'fastify';
+import { InternalError } from '../../errors';
 import type { AssetFlowInterval, AssetFlowRepository } from '../../repository/asset-flows';
-
-/** Stellar asset code, or `CODE:ISSUER`; the native asset is plain `XLM`. */
-const ASSET_PATTERN = /^(?:XLM|[A-Z0-9]{1,12}:[A-Za-z0-9]{1,64})$/;
+import {
+  assetFlowParamsSchema,
+  assetFlowQuerySchema,
+  validateRequest,
+} from '../../validation/schemas';
 
 export const DEFAULT_ASSET_FLOW_LIMIT = 100;
 export const MAX_ASSET_FLOW_LIMIT = 1000;
-
-const assetParamSchema = z
-  .string({ required_error: 'asset is required' })
-  .regex(ASSET_PATTERN, 'asset must use the CODE:ISSUER format (or XLM for the native asset)');
-
-const querySchema = z
-  .object({
-    interval: z.enum(['1m', '1h', '1d']).default('1h'),
-    from: z.coerce.date().optional(),
-    to: z.coerce.date().optional(),
-    limit: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(MAX_ASSET_FLOW_LIMIT)
-      .default(DEFAULT_ASSET_FLOW_LIMIT),
-  })
-  .refine((value) => !value.from || !value.to || value.from.getTime() <= value.to.getTime(), {
-    message: 'from must be earlier than or equal to to',
-    path: ['from'],
-  });
 
 export interface AssetFlowRouteOptions {
   repository?: AssetFlowRepository;
@@ -58,7 +21,7 @@ interface ParsedAsset {
   assetIssuer: string;
 }
 
-interface ParsedQuery {
+interface AssetFlowQuery {
   interval: AssetFlowInterval;
   from?: Date;
   to?: Date;
@@ -78,22 +41,6 @@ export function parseAsset(asset: string): ParsedAsset {
   };
 }
 
-function parseAssetParam(asset: string): ParsedAsset {
-  const result = assetParamSchema.safeParse(asset);
-  if (!result.success) {
-    throw new ValidationError('Invalid asset parameter', zodToFields(result.error));
-  }
-  return parseAsset(result.data);
-}
-
-function parseAssetQuery(query: Record<string, string>): ParsedQuery {
-  const result = querySchema.safeParse(query);
-  if (!result.success) {
-    throw new ValidationError('Invalid query parameters', zodToFields(result.error));
-  }
-  return result.data;
-}
-
 export function registerAssetFlowRoutes(
   app: FastifyInstance,
   options: AssetFlowRouteOptions,
@@ -101,11 +48,21 @@ export function registerAssetFlowRoutes(
 ): void {
   const repository = options.repository;
 
-  app.get<{ Params: { asset: string }; Querystring: Record<string, string> }>(
+  app.get<{ Params: { asset: string }; Querystring: unknown }>(
     '/assets/:asset',
+    {
+      preValidation: validateRequest({
+        params: assetFlowParamsSchema,
+        query: assetFlowQuerySchema,
+      }),
+    },
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- Fastify supports async route handlers
     async (request) => {
-      const { asset, assetCode, assetIssuer } = parseAssetParam(request.params.asset);
-      const query = parseAssetQuery(request.query);
+      const { asset, assetCode, assetIssuer } = parseAsset(
+        (request.params as { asset: string }).asset,
+      );
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+      const query = request.query as unknown as AssetFlowQuery;
 
       if (!repository) {
         throw new InternalError('Asset flow repository is not configured');
