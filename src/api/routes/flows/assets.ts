@@ -1,16 +1,4 @@
-﻿/**
- * Asset flow route (issue #24): `GET /v1/flows/assets/{asset}`.
- *
- * Returns time-bucketed volume, payment counts and net flow for a single
- * Stellar asset. The asset path parameter uses the `CODE:ISSUER` form shown
- * in the README (`USDC:GA5Z...`); the native asset can be requested as `XLM`.
- *
- * Request validation (params/query, coercion, unknown-param rejection) is
- * handled by Zod schemas/middleware from `src/api/validation/schemas.ts`
- * before the handler runs (issue #32).
- */
-
-import type { FastifyInstance } from 'fastify';
+﻿import type { FastifyInstance } from 'fastify';
 import { InternalError } from '../../errors';
 import type { AssetFlowInterval, AssetFlowRepository } from '../../repository/asset-flows';
 import {
@@ -60,6 +48,7 @@ export function registerAssetFlowRoutes(
 ): void {
   const repository = options.repository;
 
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   app.get<{ Params: { asset: string }; Querystring: Record<string, unknown> }>(
     '/assets/:asset',
     {
@@ -72,7 +61,7 @@ export function registerAssetFlowRoutes(
       const { asset, assetCode, assetIssuer } = parseAsset(
         (request.params as { asset: string }).asset,
       );
-      const query = request.query as unknown as AssetFlowQuery;
+      const query = request.query as AssetFlowQuery;
 
       if (!repository) {
         throw new InternalError('Asset flow repository is not configured');

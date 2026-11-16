@@ -1,12 +1,4 @@
-﻿/**
- * Subscription route (issue #28): `POST /v1/subscriptions`.
- *
- * Body validation (including unknown-property rejection) is handled by Zod
- * schemas/middleware from `src/api/validation/schemas.ts` before the handler
- * runs (issue #32).
- */
-
-import type { FastifyInstance } from 'fastify';
+﻿import type { FastifyInstance } from 'fastify';
 import { InternalError, UnauthorizedError } from '../errors';
 import type { SubscriptionStore, SubscriptionTargetType } from '../repository/subscriptions';
 import type { ApiKeyGuard } from '../../auth/middleware';
@@ -30,6 +22,7 @@ export function registerSubscriptionRoutes(
   options: SubscriptionRouteOptions,
   done: (err?: Error) => void,
 ): void {
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   app.post(
     '/subscriptions',
     { preValidation: validateRequest({ body: subscriptionBodySchema }) },
@@ -64,7 +57,7 @@ export function registerSubscriptionRoutes(
         events: body.events,
       });
 
-      reply.code(201);
+      void reply.code(201);
       return {
         id: subscription.id,
         target_type: subscription.targetType,

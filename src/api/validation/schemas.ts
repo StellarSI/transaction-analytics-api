@@ -1,4 +1,4 @@
-﻿import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction } from 'fastify';
+﻿import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z, type ZodTypeAny } from 'zod';
 import { ValidationError, zodToFields } from '../errors';
 

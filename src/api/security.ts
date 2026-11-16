@@ -1,5 +1,6 @@
 ﻿import type { FastifyCorsOptions } from '@fastify/cors';
 import type { FastifyHelmetOptions } from '@fastify/helmet';
+import type { FastifyInstance } from 'fastify';
 import { config } from '../config';
 
 function parseOrigins(value: string | undefined): string[] {
@@ -78,9 +79,9 @@ export function getCorsOptions(): FastifyCorsOptions {
  * Registers security plugins (helmet + CORS) on the Fastify instance.
  * Extracted so header/security configuration can be tested and reused.
  */
-export async function registerSecurity(app: import('fastify').FastifyInstance): Promise<void> {
-  const helmet = (await import('@fastify/helmet')).default;
-  const cors = (await import('@fastify/cors')).default;
+export async function registerSecurity(app: FastifyInstance): Promise<void> {
+  const { default: helmet } = await import('@fastify/helmet');
+  const { default: cors } = await import('@fastify/cors');
   await app.register(helmet, getHelmetOptions());
   await app.register(cors, getCorsOptions());
 }

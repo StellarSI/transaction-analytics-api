@@ -1,12 +1,4 @@
-﻿/**
- * Corridor flow route (issue #26): `GET /v1/flows/corridors`.
- *
- * Request validation (query coercion and unknown-param rejection) is handled
- * by Zod schemas/middleware from `src/api/validation/schemas.ts` before the
- * handler runs (issue #32).
- */
-
-import type { FastifyInstance } from 'fastify';
+﻿import type { FastifyInstance } from 'fastify';
 import { InternalError } from '../../errors';
 import type { CorridorFlowInterval, CorridorFlowRepository } from '../../repository/corridor-flows';
 import { corridorFlowQuerySchema, validateRequest } from '../../validation/schemas';
@@ -37,10 +29,11 @@ export function registerCorridorFlowRoutes(
 ): void {
   const repository = options.repository;
 
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   app.get('/corridors', {
     preValidation: validateRequest({ query: corridorFlowQuerySchema }),
   }, async (request, reply) => {
-    const query = request.query as unknown as CorridorFlowQuery;
+    const query = request.query as CorridorFlowQuery;
 
     if (!repository) {
       throw new InternalError('Corridor flow repository is not configured');

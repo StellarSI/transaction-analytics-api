@@ -1,12 +1,4 @@
-﻿/**
- * Transaction SSE stream route (issue #27): `GET /v1/transactions/stream`.
- *
- * Streams live transactions as Server-Sent Events. Query validation/coercion
- * and unknown-parameter rejection are handled by Zod schemas/middleware
- * from `src/api/validation/schemas.ts` before the handler runs (issue #32).
- */
-
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+﻿import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createRedisClient } from '../../../redis/client';
 import { transactionStreamQuerySchema, validateRequest } from '../../validation/schemas';
 
@@ -243,6 +235,7 @@ export function registerTransactionStreamRoutes(
   const maxBuffered = options.maxBufferedEvents ?? DEFAULT_MAX_BUFFERED_EVENTS;
   const channel = options.transactionStreamChannel ?? TRANSACTIONS_STREAM_CHANNEL;
 
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   app.get(
     '/transactions/stream',
     { preValidation: validateRequest({ query: transactionStreamQuerySchema }) },
@@ -278,7 +271,7 @@ export function registerTransactionStreamRoutes(
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
       });
-      reply.hijack();
+      void reply.hijack();
 
       writeSse(reply, `retry: ${retryMs}\n\n`);
 

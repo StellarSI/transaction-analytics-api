@@ -1,12 +1,4 @@
-﻿/**
- * Account flow route (issue #25): `GET /v1/flows/accounts/{account}`.
- *
- * Request validation (params/query, coercion, unknown-param rejection) is
- * handled by Zod schemas/middleware from `src/api/validation/schemas.ts`
- * before the handler runs (issue #32).
- */
-
-import type { FastifyInstance } from 'fastify';
+﻿import type { FastifyInstance } from 'fastify';
 import { InternalError } from '../../errors';
 import type { AccountFlowInterval, AccountFlowRepository } from '../../repository/account-flows';
 import {
@@ -36,6 +28,7 @@ export function registerAccountFlowRoutes(
 ): void {
   const repository = options.repository;
 
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   app.get<{ Params: { account: string } }>('/accounts/:account', {
     preValidation: validateRequest({
       params: accountFlowParamsSchema,
@@ -43,7 +36,7 @@ export function registerAccountFlowRoutes(
     }),
   }, async (request, reply) => {
     const params = request.params as { account: string };
-    const query = request.query as unknown as AccountFlowQuery;
+    const query = request.query as AccountFlowQuery;
 
     if (!repository) {
       throw new InternalError('Account flow repository is not configured');
