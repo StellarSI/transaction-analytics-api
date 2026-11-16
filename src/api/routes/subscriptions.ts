@@ -26,6 +26,7 @@ export function registerSubscriptionRoutes(
   app.post(
     '/subscriptions',
     { preValidation: validateRequest({ body: subscriptionBodySchema }) },
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     async (request, reply) => {
       const requireApiKey = options.requireApiKey;
       if (!requireApiKey) {

@@ -239,6 +239,7 @@ export function registerTransactionStreamRoutes(
   app.get(
     '/transactions/stream',
     { preValidation: validateRequest({ query: transactionStreamQuerySchema }) },
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     async (request: FastifyRequest, reply: FastifyReply) => {
       const filters = normalizeStreamQuery(request.query);
       const lastEventIdHeader = request.headers['last-event-id'];

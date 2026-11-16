@@ -57,10 +57,12 @@ export function registerAssetFlowRoutes(
         query: assetFlowQuerySchema,
       }),
     },
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     async (request) => {
       const { asset, assetCode, assetIssuer } = parseAsset(
         (request.params as { asset: string }).asset,
       );
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
       const query = request.query as unknown as AssetFlowQuery;
 
       if (!repository) {

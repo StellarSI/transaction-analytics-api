@@ -32,7 +32,9 @@ export function registerCorridorFlowRoutes(
   // eslint-disable-next-line @typescript-eslint/no-misused-promises
   app.get('/corridors', {
     preValidation: validateRequest({ query: corridorFlowQuerySchema }),
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   }, async (request, reply) => {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     const query = request.query as unknown as CorridorFlowQuery;
 
     if (!repository) {
