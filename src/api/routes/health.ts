@@ -41,6 +41,7 @@ import { dbHealthCheck, getLatestLedgerFromDb } from '../../db/pool';
 import { redisHealthCheck } from '../../redis/health';
 import { horizonHealthCheck, type HorizonHealth } from '../../ingestor/horizon/health';
 import { rpcHealthCheck, type RpcHealth } from '../../ingestor/rpc/health';
+import { getObservabilityMetrics } from '../../observability/metrics';
 
 export interface HealthCheckResult {
   ok: boolean;
@@ -104,6 +105,12 @@ export function registerHealthRoutes(
     const ingestionLagSeconds = lagLedgers === null ? null : lagLedgers * SECONDS_PER_LEDGER;
 
     const healthy = database.ok && redis.ok && horizon.ok && rpc.ok && ingestionLagSeconds !== null;
+
+    // Publish ingestion lag as a Prometheus gauge so alerts fire on the same
+    // number without scraping the JSON body (issue #35).
+    if (ingestionLagSeconds !== null) {
+      getObservabilityMetrics().ingestionLagSeconds.set(ingestionLagSeconds);
+    }
 
     return {
       status: healthy ? 'healthy' : 'degraded',
