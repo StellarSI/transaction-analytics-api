@@ -1,6 +1,7 @@
 ﻿import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createRedisClient } from '../../../redis/client';
 import { transactionStreamQuerySchema, validateRequest } from '../../validation/schemas';
+import { getObservabilityMetrics } from '../../../observability/metrics';
 
 export const TRANSACTIONS_STREAM_CHANNEL = 'eta:transactions';
 export const DEFAULT_STREAM_RETRY_MS = 5_000;
@@ -275,6 +276,11 @@ export function registerTransactionStreamRoutes(
 
       writeSse(reply, `retry: ${retryMs}\n\n`);
 
+      // Track the open SSE connection for /metrics (issue #35); decremented in
+      // cleanup below so the gauge always reflects live subscribers.
+      getObservabilityMetrics().activeSseConnections.inc();
+      let sseCounted = true;
+
       let closed = false;
       let lastCursor = filters.cursor;
       let buffered = 0;
@@ -283,6 +289,10 @@ export function registerTransactionStreamRoutes(
         if (closed) return;
         closed = true;
         clearInterval(heartbeat);
+        if (sseCounted) {
+          sseCounted = false;
+          getObservabilityMetrics().activeSseConnections.dec();
+        }
         try {
           await subscriber.close();
         } catch {

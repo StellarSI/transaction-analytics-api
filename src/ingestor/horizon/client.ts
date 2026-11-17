@@ -4,7 +4,10 @@ import type {
   OperationQueue,
 } from '../types';
 import type { OperationStreamOpener, StreamCloser } from './stream';
-import { logger as defaultLogger } from '../../logger';
+import { createModuleLogger } from '../../observability/logger';
+
+// Ingestor-scoped child logger so every line carries `module: "ingestor"` (issue #34).
+const defaultLogger = createModuleLogger('ingestor');
 
 export interface HorizonIngestorOptions {
   /** Where the SSE stream comes from. Injected so tests avoid the network. */

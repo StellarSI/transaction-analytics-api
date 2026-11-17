@@ -26,6 +26,7 @@ import {
   createPostgresSubscriptionStore,
   type SubscriptionSql,
 } from './api/repository/subscriptions';
+import { getObservabilityMetrics } from './observability/metrics';
 import {
   createAssetFlowAggregationHandler,
   createAssetFlowHandlers,
@@ -150,7 +151,24 @@ async function start(): Promise<void> {
       ]),
     ) as typeof baseHandlers;
 
-    queueWorkers = startQueueWorkers({ registry: queueRegistry, handlers, aggregationHandlers });
+    // Time every aggregation pass into `eta_aggregation_duration_seconds` so
+    // dashboards can chart aggregation latency per kind (issue #35).
+    const obsMetrics = getObservabilityMetrics();
+    const timedAggregationHandlers = Object.fromEntries(
+      Object.entries(aggregationHandlers).map(([kind, handler]) => [
+        kind,
+        async (payload: unknown, job: unknown) => {
+          const stop = obsMetrics.aggregationDurationSeconds.startTimer({ kind });
+          try {
+            await (handler as (p: unknown, j: unknown) => Promise<void> | void)(payload, job);
+          } finally {
+            stop();
+          }
+        },
+      ]),
+    ) as typeof aggregationHandlers;
+
+    queueWorkers = startQueueWorkers({ registry: queueRegistry, handlers, aggregationHandlers: timedAggregationHandlers });
     app.log.info('Queue workers started (ledger-operations, aggregation-jobs)');
 
     await app.listen({ port: config.PORT, host: '0.0.0.0' });

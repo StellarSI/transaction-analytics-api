@@ -1,19 +1,9 @@
-import pino from 'pino';
-import { config } from './config';
-
 /**
- * Shared application logger.
+ * Backwards-compatible re-export (issue #34).
  *
- * Configured from the same `LOG_LEVEL` / `NODE_ENV` settings the HTTP server
- * uses so that Redis connection events and Horizon ingestion problems show up
- * in a single, consistently formatted log stream.
+ * The implementation lives in `src/observability/logger.ts`; this module
+ * remains so existing imports of `../logger` keep working. New code should
+ * import from `../observability/logger` directly.
  */
-export const logger = pino({
-  level: config.LOG_LEVEL,
-  transport:
-    config.NODE_ENV === 'development'
-      ? { target: 'pino-pretty', options: { colorize: true } }
-      : undefined,
-});
 
-export type AppLogger = typeof logger;
+export { AppLogger, logger } from './observability/logger';
