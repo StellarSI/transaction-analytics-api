@@ -18,7 +18,10 @@
 
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import compress from '@fastify/compress';
+import { register as defaultRegistry } from 'prom-client';
 import { config } from '../config';
+import { generateRequestId } from '../observability/logger';
+import { getObservabilityMetrics, UNMATCHED_ROUTE } from '../observability/metrics';
 import { setErrorHandler } from './errors';
 import { registerSecurity } from './security';
 import { createApiKeyGuard } from '../auth/middleware';
@@ -74,11 +77,14 @@ function defaultLoggerOptions(): FastifyServerOptions['logger'] {
 }
 
 export async function createApp(options: CreateAppOptions = {}): Promise<FastifyInstance> {
+  const metrics = getObservabilityMetrics();
   const app = Fastify({
     logger: options.logger === undefined ? defaultLoggerOptions() : options.logger,
-    // Honour an inbound `x-request-id` and expose it on the response.
+    // Honour an inbound `x-request-id` and expose it on the response. When the
+    // client does not supply one, generate a UUID per request (issue #34).
     requestIdHeader: 'x-request-id',
     requestIdLogLabel: 'requestId',
+    genReqId: () => generateRequestId(),
   });
 
   await registerSecurity(app);
@@ -86,10 +92,44 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
 
   app.addHook('onRequest', (request, reply, done) => {
     void reply.header('x-request-id', request.id);
+    // Start the HTTP latency timer used by the metrics onResponse hook.
+    (request as unknown as { metricsStart?: bigint }).metricsStart =
+      process.hrtime.bigint();
+    done();
+  });
+
+  app.addHook('onResponse', (request, reply, done) => {
+    const start = (request as unknown as { metricsStart?: bigint }).metricsStart;
+    const requestAny = request as unknown as {
+      routeOptions?: { url?: string };
+      routerPath?: string;
+      metricsStart?: bigint;
+    };
+    const route = requestAny.routeOptions?.url ?? requestAny.routerPath ?? UNMATCHED_ROUTE;
+    // Never count the scrape itself, or Prometheus would feed itself.
+    if (route === '/metrics' || start === undefined) {
+      done();
+      return;
+    }
+    const durationSeconds = Number(process.hrtime.bigint() - start) / 1e9;
+    metrics.recordHttpRequest({
+      route,
+      method: request.method,
+      status: reply.statusCode,
+      durationSeconds,
+    });
     done();
   });
 
   setErrorHandler(app);
+
+  // Prometheus scrape endpoint (issue #35). Registered outside `/v1` so the
+  // scrape path is stable and unauthenticated, and separate from the public
+  // API surface the schema/docs describe.
+  app.get('/metrics', async (_request, reply) => {
+    reply.header('content-type', defaultRegistry.contentType);
+    return reply.send(await defaultRegistry.metrics());
+  });
 
   // API key authentication (issue #30) and the per-key rate limit
   // (issue #31). Both are optional so the health endpoint and the read-only
