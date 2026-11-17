@@ -16,7 +16,10 @@ import {
   type QueueRegistry,
 } from './index';
 import { createQueueMetrics, sweepQueueMetrics, type QueueMetrics } from './metrics';
-import { logger } from '../logger';
+import { createModuleLogger } from '../observability/logger';
+
+// Queue-scoped child logger so every line carries `module: "queue"` (issue #34).
+const logger = createModuleLogger('queue');
 
 /**
  * BullMQ workers for the ingestion pipeline (issue #15).

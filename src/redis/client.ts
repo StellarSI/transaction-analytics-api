@@ -1,6 +1,9 @@
 import Redis from 'ioredis';
 import { config } from '../config';
-import { logger } from '../logger';
+import { createModuleLogger } from '../observability/logger';
+
+// Redis-scoped child logger so every line carries `module: "redis"` (issue #34).
+const logger = createModuleLogger('redis');
 
 /**
  * Shared Redis connection (issue #10).

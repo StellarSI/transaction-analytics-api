@@ -44,7 +44,10 @@
  */
 
 import { Counter, register, type Registry } from 'prom-client';
-import { logger } from '../logger';
+import { createModuleLogger } from '../observability/logger';
+
+// Aggregator-scoped child logger so every line carries `module: "aggregator"` (issue #34).
+const logger = createModuleLogger('aggregator');
 import type {
   LedgerOperationHandler,
   AggregationJobHandler,
