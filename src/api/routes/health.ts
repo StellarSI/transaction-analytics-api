@@ -42,6 +42,7 @@ import { redisHealthCheck } from '../../redis/health';
 import { horizonHealthCheck, type HorizonHealth } from '../../ingestor/horizon/health';
 import { rpcHealthCheck, type RpcHealth } from '../../ingestor/rpc/health';
 import { getObservabilityMetrics } from '../../observability/metrics';
+import { buildShutdownHealth, getDrainingStatus } from '../../common/shutdown';
 
 export interface HealthCheckResult {
   ok: boolean;
@@ -106,17 +107,24 @@ export function registerHealthRoutes(
 
     const healthy = database.ok && redis.ok && horizon.ok && rpc.ok && ingestionLagSeconds !== null;
 
+    // Include shutdown draining status in the health response (issue #36).
+    const shutdownStatus = getDrainingStatus();
+
     // Publish ingestion lag as a Prometheus gauge so alerts fire on the same
     // number without scraping the JSON body (issue #35).
     if (ingestionLagSeconds !== null) {
       getObservabilityMetrics().ingestionLagSeconds.set(ingestionLagSeconds);
     }
 
+    const baseStatus: typeof healthy extends true ? 'healthy' : 'degraded' =
+      shutdownStatus ? 'draining' : (healthy ? 'healthy' : 'degraded');
+
     return {
-      status: healthy ? 'healthy' : 'degraded',
+      status: baseStatus,
       timestamp: new Date().toISOString(),
       checks: { database, redis, horizon, rpc },
       ingestion_lag_seconds: ingestionLagSeconds,
+      ...(shutdownStatus && { draining: true }),
     };
   });
 

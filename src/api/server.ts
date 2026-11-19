@@ -40,6 +40,7 @@ import {
   registerTransactionStreamRoutes,
   type TransactionStreamOptions,
 } from './routes/transactions/stream';
+import { registerSignals, triggerShutdown } from '../common/shutdown';
 
 export interface CreateAppOptions
   extends HealthRouteOptions,
@@ -157,8 +158,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
         () => undefined,
       );
 
-      void v1.register(
-        (flows, _flowOpts, flowsDone) => {
+      // Pass shutdown draining status to the health route (issue #36).
+      // The health route reads getDrainingStatus() from the shutdown module.
+      (flows, _flowOpts, flowsDone) => {
           registerAssetFlowRoutes(flows, { repository: options.repository }, () => undefined);
           registerAccountFlowRoutes(
             flows,
@@ -190,6 +192,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     },
     { prefix: '/v1' },
   );
+
+  // Register SIGTERM/SIGINT handlers for graceful shutdown (issue #36).
+  registerSignals(app);
 
   return app;
 }
