@@ -47,7 +47,7 @@ export async function triggerShutdown(app: FastifyInstance): Promise<void> {
     process.exit(1);
   }, SHUTDOWN_TIMEOUT_MS);
   // The timer must not keep the event loop alive on its own.
-  forceExitTimer.unref?.();
+  forceExitTimer.unref();
 
   try {
     // 1. Stop accepting new requests and let in-flight requests finish.
