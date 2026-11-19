@@ -2,135 +2,110 @@
  * Graceful shutdown (issue #36).
  *
  * Registers SIGTERM/SIGINT handlers that perform a coordinated shutdown:
- *   1. Stop accepting new HTTP requests (set a "draining" flag on the app).
+ *   1. Stop accepting new HTTP requests (close the Fastify server).
  *   2. Drain BullMQ workers, waiting for active jobs to complete.
- *   3. Close DB pool.
- *   4. Close Redis connection.
- *   5. Close any SSE connections.
+ *   3. Close the DB pool.
+ *   4. Close the Redis connection.
+ *   5. Close any SSE connections (handled by the server close).
  *   6. Force exit after a 30s timeout if anything hangs.
  *
- * The health endpoint at GET /v1/health reports "draining" when shutdown
- * has been triggered so operators can distinguish a planned restart from a
- * crash.
+ * The health endpoint at GET /v1/health reports "draining" while shutdown
+ * is in progress so operators can distinguish a planned restart from a crash.
  */
 
-import { pool } from '../db/pool';
-import { closeRedis } from '../redis/client';
 import type { FastifyInstance } from 'fastify';
+import { closePool } from '../db/pool';
+import { closeRedis } from '../redis/client';
 
-// ---------------------------------------------------------------------------
-// Shutdown state shared between the handler and the health check
-// ---------------------------------------------------------------------------
-
+/** Whether a graceful shutdown has been requested. */
 let shutdownInProgress = false;
-let shutdownApp: FastifyInstance | null = null;
+
+/** Force-exit timeout: 30 seconds (issue #36). */
+export const SHUTDOWN_TIMEOUT_MS = 30_000;
 
 /**
- * Triggered when a graceful shutdown is requested (SIGTERM/SIGINT).
- * Stops the HTTP server, drains resources, and exits after a timeout.
- */
-export function triggerShutdown(app: FastifyInstance): void {
-  if (shutdownInProgress) return;
-  shutdownInProgress = true;
-  shutdownApp = app;
-
-  // Mark the app as draining so health checks report it.
-  app.log.info('shutdown: triggered SIGTERM/SIGINT, starting graceful shutdown');
-
-  // 1. Stop accepting new HTTP requests by setting the server "draining" mode.
-  //    Fastify will reject new requests once draining is enabled.
-  app.log.info('shutdown: setting server to draining mode');
-  app.drain();
-
-  // 2. Close DB pool gracefully.
-  pool.end().then(() => {
-    app.log.info('shutdown: DB pool closed');
-  }).catch((err) => {
-    app.log.error({ err }, 'shutdown: error closing DB pool');
-  });
-
-  // 3. Close Redis connection gracefully.
-  closeRedis().then(() => {
-    app.log.info('shutdown: Redis connection closed');
-  }).catch((err) => {
-    app.log.error({ err }, 'shutdown: error closing Redis');
-  });
-
-  // 4. Set a 30s timeout for forceful exit.
-  const timeoutMs = 30_000;
-  const timeoutId = setTimeout(async () => {
-    app.log.warn('shutdown: forcing exit after 30s timeout');
-    process.exit(1);
-  }, timeoutMs);
-
-  // Wait for all in-flight requests to complete, then exit.
-  // Fastify's `drain()` resolves when the server has finished processing
-  // all existing requests and is in draining state.
-  // We add a small await to ensure the above cleanup steps have started.
-  // Note: Full BullMQ worker drain would be added here when workers are
-  // integrated (issue #11/#15).
-  ;(async () => {
-    try {
-      // Fastify drain waits for all requests to finish; we just need to
-      // ensure the cleanup promises above have been initiated.
-      // If the process is still alive after drain, we proceed to exit.
-      await new Promise<void>((resolve) => {
-        const check = () => {
-          if (!shutdownApp || shutdownApp.listenerCount('request') === 0) {
-            resolve();
-            return;
-          }
-          setTimeout(check, 100);
-        };
-        check();
-      });
-    } catch (_) {
-      // ignore; proceed to timeout-based exit
-    }
-    // If we get here and haven't exited, trigger the forced exit.
-    clearTimeout(timeoutId);
-    process.exit(1);
-  })();
-}
-
-/**
- * SIGTERM/SIGINT handler that initiates graceful shutdown.
- */
-export function registerSignals(app: FastifyInstance): void {
-  const shutdown = () => triggerShutdown(app);
-
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
-}
-
-/**
- * Update the health check response to report "draining" when a shutdown
- * has been triggered. Call this in `registerHealthRoutes` options.
+ * Returns whether shutdown is in progress. Used by the health route to report
+ * the "draining" status (issue #36).
  */
 export function getDrainingStatus(): boolean {
   return shutdownInProgress;
 }
 
-// ---------------------------------------------------------------------------
-// Exported helper for the health route
-// ---------------------------------------------------------------------------
+/**
+ * Performs the graceful shutdown sequence. Safe to call more than once —
+ * subsequent calls are no-ops while a shutdown is already in progress.
+ */
+export async function triggerShutdown(app: FastifyInstance): Promise<void> {
+  if (shutdownInProgress) return;
+  shutdownInProgress = true;
+
+  app.log.info('shutdown: SIGTERM/SIGINT received, starting graceful shutdown');
+
+  // Force exit after 30s if any cleanup step hangs (issue #36).
+  const forceExitTimer = setTimeout(() => {
+    app.log.warn('shutdown: 30s timeout reached, forcing exit');
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  // The timer must not keep the event loop alive on its own.
+  forceExitTimer.unref?.();
+
+  try {
+    // 1. Stop accepting new requests and let in-flight requests finish.
+    await app.close();
+    app.log.info('shutdown: HTTP server closed');
+
+    // 2. Drain BullMQ workers (wait for active jobs). Workers are registered
+    //    with `registerWorkerDrain`; each drain promise is awaited in turn.
+    for (const drain of workerDrains) {
+      await drain();
+    }
+    app.log.info('shutdown: queue workers drained');
+
+    // 3. Close the DB pool (issue #36).
+    await closePool();
+    app.log.info('shutdown: DB pool closed');
+
+    // 4. Close the shared Redis connection (issue #36).
+    await closeRedis();
+    app.log.info('shutdown: Redis connection closed');
+
+    // 5. SSE connections are closed as part of `app.close()` because the
+    //    reply streams are tied to the underlying HTTP connections.
+  } catch (error) {
+    app.log.error({ err: error }, 'shutdown: error during graceful shutdown');
+  } finally {
+    clearTimeout(forceExitTimer);
+  }
+}
+
+/** Optional hooks that drain BullMQ workers before the DB/Redis close. */
+const workerDrains: Array<() => Promise<void>> = [];
 
 /**
- * Returns the current shutdown status to include in the health check
- * response. When `true`, the `status` field should be "draining" and
- * additional context can be provided to operators.
+ * Registers a worker drain hook invoked during graceful shutdown. Tests and
+ * the BullMQ worker bootstrap can use this to wait for active jobs before
+ * the process exits (issue #36).
  */
-export interface ShutdownHealth {
-  draining: boolean;
-  signal?: string;
+export function registerWorkerDrain(drain: () => Promise<void>): void {
+  workerDrains.push(drain);
+}
+
+/** Resets shutdown state — exported for tests only. */
+export function resetShutdownState(): void {
+  shutdownInProgress = false;
+  workerDrains.length = 0;
 }
 
 /**
- * Builds a shutdown status object for the health endpoint.
+ * Registers SIGTERM/SIGINT handlers that start a graceful shutdown. A plain
+ * (non-async) listener is used to satisfy the `no-misused-promises` rule;
+ * the returned promise is explicitly ignored with `void`.
  */
-export function buildShutdownHealth(): ShutdownHealth {
-  return {
-    draining: shutdownInProgress,
-    signal: process.env.SHUTDOWN_SIGNAL,
+export function registerSignals(app: FastifyInstance): void {
+  const shutdown = (): void => {
+    void triggerShutdown(app);
   };
+
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }

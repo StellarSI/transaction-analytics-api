@@ -42,7 +42,7 @@ import { redisHealthCheck } from '../../redis/health';
 import { horizonHealthCheck, type HorizonHealth } from '../../ingestor/horizon/health';
 import { rpcHealthCheck, type RpcHealth } from '../../ingestor/rpc/health';
 import { getObservabilityMetrics } from '../../observability/metrics';
-import { buildShutdownHealth, getDrainingStatus } from '../../common/shutdown';
+import { getDrainingStatus } from '../../common/shutdown';
 
 export interface HealthCheckResult {
   ok: boolean;
@@ -116,11 +116,14 @@ export function registerHealthRoutes(
       getObservabilityMetrics().ingestionLagSeconds.set(ingestionLagSeconds);
     }
 
-    const baseStatus: typeof healthy extends true ? 'healthy' : 'degraded' =
-      shutdownStatus ? 'draining' : (healthy ? 'healthy' : 'degraded');
+    const status: 'healthy' | 'degraded' | 'draining' = shutdownStatus
+      ? 'draining'
+      : healthy
+        ? 'healthy'
+        : 'degraded';
 
     return {
-      status: baseStatus,
+      status,
       timestamp: new Date().toISOString(),
       checks: { database, redis, horizon, rpc },
       ingestion_lag_seconds: ingestionLagSeconds,

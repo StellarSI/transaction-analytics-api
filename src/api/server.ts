@@ -40,7 +40,7 @@ import {
   registerTransactionStreamRoutes,
   type TransactionStreamOptions,
 } from './routes/transactions/stream';
-import { registerSignals, triggerShutdown } from '../common/shutdown';
+import { registerSignals } from '../common/shutdown';
 
 export interface CreateAppOptions
   extends HealthRouteOptions,
@@ -160,7 +160,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
 
       // Pass shutdown draining status to the health route (issue #36).
       // The health route reads getDrainingStatus() from the shutdown module.
-      (flows, _flowOpts, flowsDone) => {
+      void v1.register(
+        (flows, _flowOpts, flowsDone) => {
           registerAssetFlowRoutes(flows, { repository: options.repository }, () => undefined);
           registerAccountFlowRoutes(
             flows,
