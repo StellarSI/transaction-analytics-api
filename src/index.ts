@@ -1,7 +1,7 @@
 import { config } from './config';
-import { closePool, pool } from './db/pool';
+import { pool } from './db/pool';
 import { runMigrations } from './db/migrate';
-import { closeRedis, getRedis } from './redis/client';
+import { getRedis } from './redis/client';
 import { createQueueRegistry, type QueueRegistry } from './queue';
 import { startQueueWorkers, type QueueWorkers } from './queue/processors';
 import { createApp } from './api/server';
@@ -52,6 +52,7 @@ import {
   type CorridorSql,
 } from './aggregator/corridors';
 import { TRANSACTIONS_STREAM_CHANNEL } from './api/routes/transactions/stream';
+import { registerWorkerDrain, triggerShutdown } from './common/shutdown';
 
 async function start(): Promise<void> {
   // HTTP API (issue #23): Fastify with helmet/CORS/compression, request ids,
@@ -75,22 +76,6 @@ async function start(): Promise<void> {
   let queueRegistry: QueueRegistry | null = null;
   let queueWorkers: QueueWorkers | null = null;
 
-  /** Runs the full drain (HTTP, queue, DB, Redis) and exits with `code`. */
-  const shutdown = async (code: 0 | 1): Promise<void> => {
-    app.log.info('Shutting down');
-    await app.close();
-    // Drain the workers first: Worker.close() resolves once in-flight jobs
-    // finished, so nothing in the pipeline is dropped mid-process.
-    try {
-      await queueWorkers?.close();
-    } catch (err) {
-      app.log.warn(err, 'Queue workers reported a non-fatal error while draining');
-    }
-    await queueRegistry?.close();
-    await closePool();
-    await closeRedis();
-    process.exit(code);
-  };
 
   try {
     const { applied } = await runMigrations();
@@ -170,16 +155,20 @@ async function start(): Promise<void> {
 
     queueWorkers = startQueueWorkers({ registry: queueRegistry, handlers, aggregationHandlers: timedAggregationHandlers });
     app.log.info('Queue workers started (ledger-operations, aggregation-jobs)');
+    // Drain the BullMQ workers during graceful shutdown (issue #36).
+    registerWorkerDrain(async () => {
+      await queueWorkers?.close();
+      await queueRegistry?.close();
+    });
 
     await app.listen({ port: config.PORT, host: '0.0.0.0' });
     app.log.info(`Server listening on port ${config.PORT}`);
 
-    // Graceful shutdown (issue #23).
-    process.on('SIGTERM', () => void shutdown(0));
-    process.on('SIGINT', () => void shutdown(0));
+    // Graceful shutdown (issue #23): SIGTERM/SIGINT signal handling is
+    // registered by createApp via registerSignals (issue #36).
   } catch (err) {
     app.log.error(err);
-    await shutdown(1);
+    await triggerShutdown(app);
   }
 }
 
