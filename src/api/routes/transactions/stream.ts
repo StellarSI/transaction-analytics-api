@@ -1,4 +1,4 @@
-﻿import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createRedisClient } from '../../../redis/client';
 import { transactionStreamQuerySchema, validateRequest } from '../../validation/schemas';
 import { getObservabilityMetrics } from '../../../observability/metrics';
@@ -227,6 +227,24 @@ function writeSse(reply: FastifyReply, chunk: string): boolean {
   return ok !== false;
 }
 
+/**
+ * Cleanup callbacks of every live SSE connection (issue #36). The graceful
+ * shutdown drain calls `closeActiveStreamConnections()` so hijacked sockets
+ * cannot wedge the HTTP server close.
+ */
+const activeCloseCallbacks = new Set<() => Promise<void>>();
+
+/**
+ * Close every tracked SSE connection and wait for the cleanups to settle.
+ * Used by the shutdown drain; cleanup failures are ignored because the
+ * process is exiting anyway.
+ */
+export async function closeActiveStreamConnections(): Promise<void> {
+  const closes = [...activeCloseCallbacks];
+  activeCloseCallbacks.clear();
+  await Promise.all(closes.map((close) => close().catch(() => undefined)));
+}
+
 export function registerTransactionStreamRoutes(
   app: FastifyInstance,
   options: TransactionStreamOptions = {},
@@ -288,6 +306,7 @@ export function registerTransactionStreamRoutes(
       const cleanup = async (): Promise<void> => {
         if (closed) return;
         closed = true;
+        activeCloseCallbacks.delete(cleanup);
         clearInterval(heartbeat);
         if (sseCounted) {
           sseCounted = false;
@@ -302,6 +321,8 @@ export function registerTransactionStreamRoutes(
           reply.raw.end();
         }
       };
+
+      activeCloseCallbacks.add(cleanup);
 
       const heartbeat = setInterval(() => {
         if (closed) return;

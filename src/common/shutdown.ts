@@ -2,18 +2,20 @@
  * Graceful shutdown (issue #36).
  *
  * Registers SIGTERM/SIGINT handlers that perform a coordinated shutdown:
+ *   0. Close active SSE connections (they are hijacked, so the server
+ *      close below would otherwise wait for them).
  *   1. Stop accepting new HTTP requests (close the Fastify server).
  *   2. Drain BullMQ workers, waiting for active jobs to complete.
  *   3. Close the DB pool.
  *   4. Close the Redis connection.
- *   5. Close any SSE connections (handled by the server close).
- *   6. Force exit after a 30s timeout if anything hangs.
+ *   5. Force exit after the configured timeout if anything hangs.
  *
  * The health endpoint at GET /v1/health reports "draining" while shutdown
  * is in progress so operators can distinguish a planned restart from a crash.
  */
 
 import type { FastifyInstance } from 'fastify';
+import { closeActiveStreamConnections } from '../api/routes/transactions/stream';
 import { closePool } from '../db/pool';
 import { closeRedis } from '../redis/client';
 
@@ -22,6 +24,11 @@ let shutdownInProgress = false;
 
 /** Force-exit timeout: 30 seconds (issue #36). */
 export const SHUTDOWN_TIMEOUT_MS = 30_000;
+
+export interface TriggerShutdownOptions {
+  /** Force-exit budget in ms; defaults to SHUTDOWN_TIMEOUT_MS (30s). */
+  timeoutMs?: number;
+}
 
 /**
  * Returns whether shutdown is in progress. Used by the health route to report
@@ -35,21 +42,31 @@ export function getDrainingStatus(): boolean {
  * Performs the graceful shutdown sequence. Safe to call more than once —
  * subsequent calls are no-ops while a shutdown is already in progress.
  */
-export async function triggerShutdown(app: FastifyInstance): Promise<void> {
+export async function triggerShutdown(
+  app: FastifyInstance,
+  options: TriggerShutdownOptions = {},
+): Promise<void> {
   if (shutdownInProgress) return;
   shutdownInProgress = true;
 
   app.log.info('shutdown: SIGTERM/SIGINT received, starting graceful shutdown');
 
-  // Force exit after 30s if any cleanup step hangs (issue #36).
+  const timeoutMs = options.timeoutMs ?? SHUTDOWN_TIMEOUT_MS;
+
+  // Force exit if any cleanup step hangs (issue #36).
   const forceExitTimer = setTimeout(() => {
-    app.log.warn('shutdown: 30s timeout reached, forcing exit');
+    app.log.warn({ timeoutMs }, 'shutdown: timeout reached, forcing exit');
     process.exit(1);
-  }, SHUTDOWN_TIMEOUT_MS);
+  }, timeoutMs);
   // The timer must not keep the event loop alive on its own.
   forceExitTimer.unref();
 
   try {
+    // 0. Close SSE connections first: they are hijacked, so the server
+    //    close below would otherwise wait for them (issue #36).
+    await closeActiveStreamConnections();
+    app.log.info('shutdown: SSE connections closed');
+
     // 1. Stop accepting new requests and let in-flight requests finish.
     await app.close();
     app.log.info('shutdown: HTTP server closed');
@@ -69,8 +86,6 @@ export async function triggerShutdown(app: FastifyInstance): Promise<void> {
     await closeRedis();
     app.log.info('shutdown: Redis connection closed');
 
-    // 5. SSE connections are closed as part of `app.close()` because the
-    //    reply streams are tied to the underlying HTTP connections.
   } catch (error) {
     app.log.error({ err: error }, 'shutdown: error during graceful shutdown');
   } finally {
