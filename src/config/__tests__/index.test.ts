@@ -79,7 +79,7 @@ describe('config', () => {
     }) as never);
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.resetModules();
-    process.env = {} as any;
+    process.env = {} as unknown as NodeJS.ProcessEnv;
 
     await expect(import('../index')).rejects.toThrow('process.exit:1');
     expect(exit).toHaveBeenCalledWith(1);
@@ -112,3 +112,4 @@ describe('config', () => {
     ).rejects.toThrow('process.exit:1');
   });
 });
+
