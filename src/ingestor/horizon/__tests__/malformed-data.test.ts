@@ -3,7 +3,7 @@ import { ClaimableBalanceIngestor } from '../claimable-balances';
 import { OfferIngestor } from '../offers';
 import { PathPaymentIngestor } from '../path-payments';
 import { PaymentIngestor } from '../payments';
-import type { OperationQueue } from '../../types';
+import type { HorizonOperationRecord, OperationQueue } from '../../types';
 import type { OperationStreamOpener, StreamCloser, StreamHandlers } from '../stream';
 
 function fakeOpener() {
@@ -35,11 +35,11 @@ describe('Horizon SSE malformed data handling', () => {
     const ingestor = new PaymentIngestor({ opener, queue, baseBackoffMs: 1 });
     await ingestor.start();
 
-    opens[0].handlers.onOperation({ type: 'payment', type_i: 1 } as any);
-    opens[0].handlers.onOperation({} as any);
+    opens[0].handlers.onOperation({ type: 'payment', type_i: 1 } as unknown as HorizonOperationRecord);
+    opens[0].handlers.onOperation({} as unknown as HorizonOperationRecord);
     await flush();
 
-    expect(queue.pushPayment).not.toHaveBeenCalled();
+    expect(queue.pushPayment.mock.calls).toHaveLength(0);
     expect(ingestor.isRunning).toBe(true);
     ingestor.stop();
   });
@@ -50,11 +50,11 @@ describe('Horizon SSE malformed data handling', () => {
     const ingestor = new PathPaymentIngestor({ opener, queue, baseBackoffMs: 1 });
     await ingestor.start();
 
-    opens[0].handlers.onOperation({ type: 'path_payment_strict_receive', type_i: 2 } as any);
-    opens[0].handlers.onOperation({ bad: true } as any);
+    opens[0].handlers.onOperation({ type: 'path_payment_strict_receive', type_i: 2 } as unknown as HorizonOperationRecord);
+    opens[0].handlers.onOperation({ bad: true } as unknown as HorizonOperationRecord);
     await flush();
 
-    expect(queue.pushPathPayment).not.toHaveBeenCalled();
+    expect(queue.pushPathPayment.mock.calls).toHaveLength(0);
     ingestor.stop();
   });
 
@@ -64,10 +64,10 @@ describe('Horizon SSE malformed data handling', () => {
     const ingestor = new OfferIngestor({ opener, queue, baseBackoffMs: 1 });
     await ingestor.start();
 
-    opens[0].handlers.onOperation({ type: 'manage_sell_offer', type_i: 3 } as any);
+    opens[0].handlers.onOperation({ type: 'manage_sell_offer', type_i: 3 } as unknown as HorizonOperationRecord);
     await flush();
 
-    expect(queue.pushOffer).not.toHaveBeenCalled();
+    expect(queue.pushOffer.mock.calls).toHaveLength(0);
     ingestor.stop();
   });
 
@@ -77,11 +77,11 @@ describe('Horizon SSE malformed data handling', () => {
     const ingestor = new ClaimableBalanceIngestor({ opener, queue, baseBackoffMs: 1 });
     await ingestor.start();
 
-    opens[0].handlers.onOperation({ type: 'create_claimable_balance', type_i: 14 } as any);
-    opens[0].handlers.onOperation({ type: 'claim_claimable_balance', type_i: 15 } as any);
+    opens[0].handlers.onOperation({ type: 'create_claimable_balance', type_i: 14 } as unknown as HorizonOperationRecord);
+    opens[0].handlers.onOperation({ type: 'claim_claimable_balance', type_i: 15 } as unknown as HorizonOperationRecord);
     await flush();
 
-    expect(queue.pushClaimableBalance).not.toHaveBeenCalled();
+    expect(queue.pushClaimableBalance.mock.calls).toHaveLength(0);
     ingestor.stop();
   });
 });
