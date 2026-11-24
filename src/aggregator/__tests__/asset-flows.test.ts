@@ -374,3 +374,53 @@ describe('update events', () => {
     expect(await counterValue(metrics.bucketsUpdated, { interval: '1h' })).toBe(1);
   });
 });
+
+describe('edge cases and string precision (issue #39)', () => {
+  it('keeps a zero-amount payment as one payment with zero volume', () => {
+    const deltas = computeAssetFlowDeltas(
+      [
+        {
+          assetCode: 'XLM',
+          assetIssuer: '',
+          amount: '0.0000000',
+          fromAccount: 'GA',
+          toAccount: 'GB',
+          ledgerClosedAt: HOUR,
+        },
+      ],
+      ['1h'],
+    );
+
+    expect(deltas).toEqual([
+      {
+        interval: '1h',
+        bucketStart: '2026-11-01T10:00:00.000Z',
+        assetCode: 'XLM',
+        assetIssuer: '',
+        volume: '0.0000000',
+        payments: 1,
+        netFlow: '0.0000000',
+      },
+    ]);
+  });
+
+  it('adds duplicate operations additively at stroop precision', () => {
+    const op = {
+      assetCode: 'USDC',
+      assetIssuer: 'GISS',
+      amount: '0.0000001',
+      fromAccount: 'GISS',
+      toAccount: 'GB',
+      ledgerClosedAt: HOUR,
+    };
+
+    const deltas = computeAssetFlowDeltas([op, op], ['1h']);
+
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0]).toMatchObject({
+      volume: '0.0000002',
+      payments: 2,
+      netFlow: '0.0000002',
+    });
+  });
+});

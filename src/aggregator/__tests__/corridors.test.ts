@@ -353,3 +353,50 @@ describe('update events', () => {
     expect(await counterValue(metrics.failuresTotal, { stage: 'events' })).toBe(1);
   });
 });
+
+describe('edge cases and string precision (issue #39)', () => {
+  it('keeps a zero-amount corridor as one payment with zero volume', () => {
+    const deltas = computeCorridorDeltas(
+      [
+        {
+          sourceAsset: 'XLM',
+          destAsset: 'USDC:GISS',
+          sourceAnchor: 'XLM',
+          destAnchor: 'GISS',
+          amount: '0.0000000',
+          ledgerClosedAt: HOUR,
+        },
+      ],
+      ['1h'],
+    );
+
+    expect(deltas).toEqual([
+      {
+        interval: '1h',
+        bucketStart: '2026-11-01T10:00:00.000Z',
+        sourceAsset: 'XLM',
+        destAsset: 'USDC:GISS',
+        sourceAnchor: 'XLM',
+        destAnchor: 'GISS',
+        volume: '0.0000000',
+        payments: 1,
+      },
+    ]);
+  });
+
+  it('adds duplicate operations additively at stroop precision', () => {
+    const op = {
+      sourceAsset: 'XLM',
+      destAsset: 'USDC:GISS',
+      sourceAnchor: 'XLM',
+      destAnchor: 'GISS',
+      amount: '0.0000001',
+      ledgerClosedAt: HOUR,
+    };
+
+    const deltas = computeCorridorDeltas([op, op], ['1h']);
+
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0]).toMatchObject({ volume: '0.0000002', payments: 2 });
+  });
+});
