@@ -340,6 +340,27 @@ so unit tests run without the `@google-cloud/bigquery` SDK. In production,
 and `BIGQUERY_KEY_FILE` environment variables (see `.env.example`). The
 Postgres-backed store lives in `src/ingestor/hubble/store.ts`.
 
+## Integration tests
+
+`npm run test:integration` runs the suites in `tests/integration/` against
+real PostgreSQL/TimescaleDB and Redis instances. A disposable pair of test
+containers is provided:
+
+```bash
+docker compose -f docker-compose.test.yml up -d --wait
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/analytics_test \
+REDIS_URL=redis://localhost:6379 \
+API_KEY_SALT=integration-test-salt-min-16-chars \
+npm run test:integration
+docker compose -f docker-compose.test.yml down -v
+```
+
+The ingestion suite (`tests/integration/ingestion.test.ts`) replays a mocked
+Horizon SSE batch through the Redis queue into `ledger_operations`, derives
+asset and account aggregates from it, and verifies that a simulated reorg
+recomputes the affected bucket. Rows and queue entries are removed in
+`afterAll`, and `down -v` deletes the container volumes.
+
 ## Roadmap
 
 - [ ] Ingestor for payments and path payments
