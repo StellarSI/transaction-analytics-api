@@ -1,0 +1,45 @@
+# Ephemeral infrastructure for `npm run test:integration`.
+#
+#   docker compose -f docker-compose.test.yml up -d --wait
+#   DATABASE_URL=postgres://postgres:postgres@localhost:5432/analytics_test \
+#   REDIS_URL=redis://localhost:6379 \
+#   API_KEY_SALT=integration-test-salt-min-16-chars \
+#   npm run test:integration
+#   docker compose -f docker-compose.test.yml down -v
+#
+# No real Stellar network is contacted: Horizon/SSE is injected in the tests.
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: stellarsi-analytics-test-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: analytics_test
+    ports:
+      - "5432:5432"
+    volumes:
+      - test-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d analytics_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    container_name: stellarsi-analytics-test-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - test-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  test-db:
+  test-redis:
