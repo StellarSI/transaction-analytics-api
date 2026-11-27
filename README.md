@@ -361,6 +361,26 @@ against seeded aggregate tables. Each suite cleans up the rows, keys and
 connections it creates; the `down -v` command removes the container volumes.
 Horizon/SSE is injected, so no live Stellar network is contacted.
 
+## End-to-end tests
+
+`npm run test:e2e` runs the suites in `tests/e2e/` with the same disposable
+TimescaleDB and Redis containers:
+
+```bash
+docker compose -f docker-compose.test.yml up -d --wait
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/analytics_test \
+REDIS_URL=redis://localhost:6379 \
+API_KEY_SALT=e2e-test-salt-min-16-chars \
+npm run test:e2e
+docker compose -f docker-compose.test.yml down -v
+```
+
+The stream suite (`tests/e2e/stream.test.ts`) drives a mocked Horizon SSE
+batch through ingestion, the Redis queue and the asset aggregator, publishes
+the resulting payload on the production stream channel, and asserts that the
+SSE endpoint delivers it with account/asset filters and cursor resume. All
+connections and rows are cleaned up in `afterAll`.
+
 ## Roadmap
 
 - [ ] Ingestor for payments and path payments
