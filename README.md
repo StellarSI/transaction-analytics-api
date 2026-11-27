@@ -361,6 +361,26 @@ against seeded aggregate tables. Each suite cleans up the rows, keys and
 connections it creates; the `down -v` command removes the container volumes.
 Horizon/SSE is injected, so no live Stellar network is contacted.
 
+## End-to-end tests
+
+`npm run test:e2e` runs the suites in `tests/e2e/` with the same disposable
+TimescaleDB and Redis containers:
+
+```bash
+docker compose -f docker-compose.test.yml up -d --wait
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/analytics_test \
+REDIS_URL=redis://localhost:6379 \
+API_KEY_SALT=e2e-test-salt-min-16-chars \
+npm run test:e2e
+docker compose -f docker-compose.test.yml down -v
+```
+
+The webhook suite (`tests/e2e/webhooks.test.ts`) registers a subscription
+through the real REST API, dispatches a payment event to a local HTTP
+receiver, and asserts signature headers, retries with exponential backoff,
+permanent 4xx handling and dead-lettering after the configured maximum.
+All subscriptions, keys, servers and connections are cleaned up in `afterAll`.
+
 ## Roadmap
 
 - [ ] Ingestor for payments and path payments
